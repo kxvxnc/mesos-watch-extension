@@ -18,11 +18,11 @@ The badge shows how many items are at or under target. Clicking a notification j
 **Settings:** check interval (30 s minimum, 60 s default), an optional "X% under typical price" alert that applies to every item, notifications on/off, and a CSV export of the price log (one row each time an item's cheapest price changes).
 
 ## How it works
-It runs inside your open mesos.watch tab and calls the site's own `LIVE.summary(...)`, so requests go through the site's normal session, Turnstile check and renewal. Up to 60 items cost one request per check. With several mesos.watch tabs open, only one does the checking.
+It runs inside your open mesos.watch tab and calls the site's own helpers, so requests go through the site's normal session, Turnstile check and renewal. Each check makes one summary request for up to 60 items. For items that may have a listing under the target, it also fetches all of that item's listings on every channel, and alerts once for each new listing at or under the target: price each, bundle size, channel, room and seller. With several mesos.watch tabs open, only one does the checking.
 
 ## If the badge says "off"
 - No mesos.watch tab is open, or Chrome put it to sleep. In `chrome://settings/performance`, add `mesos.watch` under "Always keep these sites active".
 - After reloading or updating the extension, reload the mesos.watch tab too.
 - If the site changes its code and `LIVE` goes away, the popup will show an error saying so.
 
-Note: "cheapest" is whatever the site's summary reports; for stackable items check on the site whether that's per item or per bundle before setting tight targets.
+Targets are compared with the price **each**: a bundle of 100 for 5m counts as 50k.

@@ -73,7 +73,7 @@ function renderList() {
 
   for (const w of state.watch) {
     const x = items[w.id];
-    const under = x ? isUnder(x, w.target, state.settings.dealPct) : false;
+    const under = x ? (x.hits ? x.hitCount > 0 : isUnder(x, w.target, state.settings.dealPct)) : false;
     const li = el('li', 'item' + (under ? ' under' : ''));
 
     const name = el('div', 'name', w.name || `Item ${w.id}`);
@@ -86,7 +86,6 @@ function renderList() {
     let metaText = 'waiting for the first check';
     if (x) {
       const parts = [];
-      if (x.where) parts.push(`ch ${x.where.ch} · room ${x.where.r}${x.where.owner ? ' · ' + x.where.owner : ''}`);
       if (x.typical) parts.push(`typical ${fmtMesos(x.typical)}`);
       if (x.listings != null) parts.push(`${x.listings} listed`);
       metaText = parts.join(' · ') || 'no listings right now';
@@ -114,12 +113,31 @@ function renderList() {
     rm.title = 'Remove';
     rm.addEventListener('click', () => {
       state.watch = state.watch.filter(o => o.id !== w.id);
-      saveWatch();
+      // drop its last results too, so adding it back starts clean
+      const latest = state.latest;
+      if (latest && latest.items) delete latest.items[w.id];
+      chrome.storage.local.set({ watch: state.watch, latest });
       renderList();
     });
     ctl.append(lab, input, rm);
 
     li.append(name, price, meta, ctl);
+
+    // every listing at or under the target, newest first
+    if (x && x.hitCount) {
+      const ul = el('ul', 'hits');
+      for (const r of x.hits.slice(0, 5)) {
+        const row = el('li');
+        row.append(
+          el('b', null, fmtMesos(r.unit) + (r.per > 1 ? ' ea' : '') + (r.stacks > 1 ? ` ×${r.stacks}` : '')),
+          el('span', null, `Ch ${r.ch} · Room ${r.r}${r.owner ? ' · ' + r.owner : ''}`),
+          el('i', null, r.listed ? agoS(r.listed) : ''));
+        row.title = r.per > 1 ? `${r.per} for ${Number(r.price).toLocaleString('en-US')} mesos` : `${Number(r.price).toLocaleString('en-US')} mesos`;
+        ul.append(row);
+      }
+      if (x.hitCount > 5) ul.append(el('li', 'more', `+${x.hitCount - 5} more under target`));
+      li.append(ul);
+    }
     list.append(li);
   }
 }

@@ -15,7 +15,7 @@
     },
     {
       "matches": ["https://mesos.watch/*"],
-      "js": ["bridge.js"],
+      "js": ["util.js", "bridge.js"],
       "run_at": "document_idle"
     }
   ],

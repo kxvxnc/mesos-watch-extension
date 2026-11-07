@@ -24,33 +24,52 @@ chrome.tabs.onRemoved.addListener(async tabId => {
 });
 
 /* ---------- results ---------- */
-async function onResult(data) {
+// one offer: the same shop, price and bundle size (its stacks are folded into one row)
+const listingKey = r => `${r.store}|${r.price}|${r.per}`;
+// a listing missing from a scan or two and back again isn't new: remember the ones seen for this long
+const SEEN_KEEP_MS = 6 * 3600 * 1000;
+
+// data: the summary per item; hits: the listings at or under the max per item (missing = none, null = that check failed)
+async function onResult(data, hits) {
   const st = await getState();
   const settings = settingsOf(st.settings);
   const now = Date.now();
   const items = {};
   const alerts = [];
-  let hits = 0, watchChanged = false;
+  let underItems = 0, watchChanged = false;
 
   for (const w of st.watch) {
     const x = data[w.id] || null;
     if (x && x.name && x.name !== w.name) { w.name = x.name; watchChanged = true; }
     const name = w.name || `Item ${w.id}`;
-    const under = isUnder(x, w.target, settings.dealPct);
-    items[w.id] = x ? { ...x, name, under } : { name, cheapest: null, listings: 0, under: false };
+    const max = alertMax(w.target, x && x.typical, settings.dealPct);
+    const prevItem = st.latest && st.latest.items && st.latest.items[w.id];
 
-    if (under) {
-      hits++;
-      const store = x.where ? x.where.store : null;
-      const prev = st.alerted[w.id];
-      // alert on a new deal, a lower price, or a different shop at the same price or less
-      if (!prev || x.cheapest < prev.price || (store !== prev.store && x.cheapest <= prev.price)) {
-        alerts.push({ id: w.id, name, x, target: w.target });
-      }
-      st.alerted[w.id] = { price: x.cheapest, store };
+    let rows = hits[w.id];
+    if (rows === null) {
+      // this item's listings couldn't be read this time: keep the last ones, no new alerts
+      rows = ((prevItem && prevItem.hits) || []).filter(r => r.unit <= max);
     } else {
-      delete st.alerted[w.id];
+      rows = (rows || []).filter(r => r.unit <= max);
+      // Alert only on listings that show up after the item was added or its target (or the deal %) last changed:
+      // the first check after that just notes what's already up, silently.
+      const cfg = `${w.target}|${settings.dealPct}`;
+      const prev = st.alerted[w.id];
+      const base = prev && prev.cfg === cfg && prev.seen ? prev : null;
+      const seen = base ? { ...base.seen } : {};
+      for (const r of rows) {
+        const k = listingKey(r);
+        if (base && !seen[k]) alerts.push({ id: w.id, name, r, target: w.target, typical: x && x.typical });
+        seen[k] = now;
+      }
+      for (const k in seen) if (now - seen[k] > SEEN_KEEP_MS) delete seen[k];
+      st.alerted[w.id] = { cfg, seen };
     }
+    const under = rows.length > 0;
+    if (under) underItems++;
+    items[w.id] = x
+      ? { ...x, name, under, hits: rows.slice(0, 50), hitCount: rows.length }
+      : { name, cheapest: null, listings: 0, under: false, hits: [], hitCount: 0 };
 
     // history: one row whenever an item's cheapest price changes
     const prevCheapest = st.latest && st.latest.items && st.latest.items[w.id] ? st.latest.items[w.id].cheapest : undefined;
@@ -62,14 +81,15 @@ async function onResult(data) {
       ]);
     }
   }
+  for (const id in st.alerted) if (!st.watch.some(w => String(w.id) === id)) delete st.alerted[id]; // removed items
   if (st.history.length > MWA_HISTORY_CAP) st.history.splice(0, st.history.length - MWA_HISTORY_CAP);
 
   const save = { latest: { at: now, items, error: null }, alerted: st.alerted, history: st.history };
   if (watchChanged) save.watch = st.watch;
   await chrome.storage.local.set(save);
 
-  await setBadge(hits ? String(hits) : '', '#1f9d55', hits ? `${hits} item${hits > 1 ? 's' : ''} at or under target` : 'Mesos Watch Alerts: checking');
-  if (settings.notify) notify(alerts);
+  await setBadge(underItems ? String(underItems) : '', '#1f9d55', underItems ? `${underItems} item${underItems > 1 ? 's' : ''} at or under target` : 'Mesos Watch Alerts: checking');
+  if (settings.notify) notify(alerts, settings.dealPct);
 }
 
 async function onError(error) {
@@ -86,26 +106,28 @@ async function setBadge(text, color, title) {
 }
 
 /* ---------- notifications ---------- */
-function notify(alerts) {
+// one notification per new listing, up to 3; past that, one more that sums up the rest
+// (not a 'list' notification: macOS shows only its first line)
+let noteSeq = 0;
+function notify(alerts, dealPct) {
   if (!alerts.length) return;
-  const line = a => {
-    const w = a.x.where;
-    return `${fmtMesos(a.x.cheapest)}${w ? ` · ch ${w.ch}, room ${w.r}${w.owner ? ` (${w.owner})` : ''}` : ''}`;
-  };
-  if (alerts.length <= 3) {
-    for (const a of alerts) {
-      const why = a.target > 0 && a.x.cheapest <= a.target ? `target ${fmtMesos(a.target)}` : `typical ${fmtMesos(a.x.typical)}`;
-      chrome.notifications.create(`mwa:${a.id}:${Date.now()}`, {
-        type: 'basic', iconUrl: 'icons/128.png', priority: 2,
-        title: `${a.name}: ${fmtMesos(a.x.cheapest)}`,
-        message: `${line(a)}\n${why}`
-      });
-    }
-  } else {
-    chrome.notifications.create(`mwa:many:${Date.now()}`, {
-      type: 'list', iconUrl: 'icons/128.png', priority: 2,
-      title: `${alerts.length} items hit your targets`, message: '',
-      items: alerts.slice(0, 8).map(a => ({ title: a.name, message: line(a) }))
+  const each = r => fmtMesos(r.unit) + (r.per > 1 ? ' each' : '');
+  const place = r => `Ch ${r.ch} · Room ${r.r}${r.owner ? ' · ' + r.owner : ''}`;
+  const create = opts => chrome.notifications.create(`mwa:${Date.now()}:${++noteSeq}`, { type: 'basic', iconUrl: 'icons/128.png', priority: 2, ...opts });
+
+  for (const a of alerts.slice(0, 3)) {
+    const why = a.target > 0 && a.r.unit <= a.target
+      ? `Under your target of ${fmtMesos(a.target)}`
+      : `${dealPct}%+ under typical (${fmtMesos(a.typical)})`;
+    const bundle = (a.r.per > 1 ? `${a.r.per} for ${fmtMesos(a.r.price)} · ` : '') + (a.r.stacks > 1 ? `${a.r.stacks} stacks · ` : '');
+    const when = a.r.listed ? ` · listed ${agoS(a.r.listed)}` : '';
+    create({ title: `${a.name}: ${each(a.r)}`, message: `${bundle}${place(a.r)}\n${why}${when}` });
+  }
+  const rest = alerts.slice(3);
+  if (rest.length) {
+    create({
+      title: `${rest.length} more listing${rest.length > 1 ? 's' : ''} under your targets`,
+      message: rest.slice(0, 4).map(a => `${a.name} ${each(a.r)} · Ch ${a.r.ch}`).join('\n') + (rest.length > 4 ? '\nOpen the extension for the rest.' : '')
     });
   }
 }
@@ -137,7 +159,7 @@ chrome.alarms.onAlarm.addListener(async a => {
 /* ---------- messages ---------- */
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'claim') { claim(sender.tab ? sender.tab.id : -1, !!msg.force).then(sendResponse); return true; }
-  if (msg.type === 'result') { onResult(msg.data).then(() => sendResponse(true)); return true; }
+  if (msg.type === 'result') { onResult(msg.data, msg.hits || {}).then(() => sendResponse(true)); return true; }
   if (msg.type === 'error') { onError(msg.error).then(() => sendResponse(true)); return true; }
   if (msg.type === 'focusSite') { focusSite().then(() => sendResponse(true)); return true; }
   return false;

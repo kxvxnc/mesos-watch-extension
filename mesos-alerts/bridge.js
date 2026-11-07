@@ -42,7 +42,18 @@
       if (!(await send({ type: 'claim', force }))) return;
       try {
         const data = await ask('poll', { ids: watch.map(w => Number(w.id)) });
-        await send({ type: 'result', data });
+        // fetch the full listings only for items that can have one under the max: the summary's cheapest says so,
+        // or the item can come in bundles (the summary's cheapest may be a bundle's price, not the price each)
+        const { settings = {} } = await chrome.storage.local.get('settings');
+        const dealPct = Number(settings.dealPct) || 0;
+        const need = [];
+        for (const w of watch) {
+          const x = data[w.id];
+          const max = alertMax(w.target, x && x.typical, dealPct);
+          if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max });
+        }
+        const hits = need.length ? await ask('listings', { items: need }, 30000 + 15000 * need.length) : {};
+        await send({ type: 'result', data, hits });
       } catch (err) {
         await send({ type: 'error', error: err });
       }
@@ -60,7 +71,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || dead) return;
-    if (changes.settings) schedule();
+    if (changes.settings) { schedule(); tick(true); } // a new deal % changes which listings count
     if (changes.watch) {
       const before = (changes.watch.oldValue || []).map(w => w.id).join();
       const after = (changes.watch.newValue || []).map(w => w.id).join();

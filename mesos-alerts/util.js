@@ -23,10 +23,28 @@ function parseMesos(s) {
   return Math.round(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1));
 }
 
+// the highest price (per item) that should alert: your target, or the deal % under typical, whichever is higher; 0 = none
+function alertMax(target, typical, dealPct) {
+  let m = target > 0 ? target : 0;
+  if (dealPct > 0 && typical > 0) m = Math.max(m, typical * (1 - dealPct / 100));
+  return m;
+}
+
+// a time in unix seconds (as the API sends them) -> "just now", "5m ago", "3h ago", "2d ago"
+function agoS(sec) {
+  const m = Math.max(0, Math.round((Date.now() / 1000 - sec) / 60));
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  if (m < 48 * 60) return `${Math.round(m / 60)}h ago`;
+  return `${Math.round(m / 1440)}d ago`;
+}
+
+// equips (IDs starting with 1) are never sold in bundles; everything else can be
+const mayBundle = id => String(id)[0] !== '1';
+
 // is this item's cheapest listing worth an alert?
 function isUnder(x, target, dealPct) {
   if (!x || x.cheapest == null) return false;
-  if (target > 0 && x.cheapest <= target) return true;
-  if (dealPct > 0 && x.typical > 0 && x.cheapest <= x.typical * (1 - dealPct / 100)) return true;
-  return false;
+  const max = alertMax(target, x.typical, dealPct);
+  return max > 0 && x.cheapest <= max;
 }
