@@ -385,8 +385,10 @@ $('importReplace').addEventListener('click', () => doImport(true));
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   await load();
-  // don't redraw under someone typing a target; it redraws on the next update
-  const editing = document.activeElement && $('list').contains(document.activeElement);
+  // don't redraw under someone typing a target; it redraws on the next update.
+  // Only a text box counts: a clicked button or switch also takes focus, and that must still redraw.
+  const a = document.activeElement;
+  const editing = a && a.matches('input[type=text]') && $('list').contains(a);
   if ((changes.latest || changes.watch) && !editing) renderList();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
   if (changes.history || changes.settings) renderSettings();
