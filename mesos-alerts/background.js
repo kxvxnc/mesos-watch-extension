@@ -1,7 +1,7 @@
 importScripts('util.js');
 
 const getState = () => chrome.storage.local.get({
-  watch: [], settings: MWA_DEFAULTS, latest: null, alerted: {}, history: [], inbox: []
+  watch: [], settings: MWA_DEFAULTS, latest: null, alerted: {}, history: [], inbox: [], errors: []
 });
 const settingsOf = s => ({ ...MWA_DEFAULTS, ...(s || {}) });
 
@@ -9,6 +9,27 @@ const settingsOf = s => ({ ...MWA_DEFAULTS, ...(s || {}) });
 // dismiss an alert can't write back an older copy over it.
 let queue = Promise.resolve();
 const serial = fn => (queue = queue.then(fn, fn));
+
+/* ---------- error log (settings page) ---------- */
+// Newest first. The same error again (same source, item, message and code, among the last few) bumps its count and
+// moves to the top instead of adding a row, so a failure every minute stays one line.
+const ERRORS_CAP = 100;
+function addError(list, e) {
+  const now = Date.now();
+  const entry = { source: e.source, item: e.item || null, itemId: e.itemId || null, message: e.message || 'Unknown error',
+    code: e.code || null, userMessage: e.userMessage || null, name: e.name || null };
+  const same = list.slice(0, 10).findIndex(x => x.source === entry.source && x.itemId === entry.itemId && x.message === entry.message && x.code === entry.code);
+  if (same >= 0) {
+    const x = list[same];
+    return [{ ...x, count: (x.count || 1) + 1, lastAt: now }, ...list.filter((_, i) => i !== same)];
+  }
+  return [{ at: now, lastAt: now, count: 1, ...entry }, ...list].slice(0, ERRORS_CAP);
+}
+const logErrors = entries => serial(async () => {
+  let { errors } = await getState();
+  for (const e of entries) errors = addError(errors, e);
+  await chrome.storage.local.set({ errors });
+});
 
 /* ---------- one checking tab at a time ---------- */
 // The first tab to ask becomes the leader; another tab takes over only if the leader stops checking.
@@ -50,9 +71,15 @@ async function onResult(data, hits) {
 
     let rows = hits[w.id];
     let hitsError = null, hitsAt = now;
-    if (rows === null || (rows && !Array.isArray(rows))) {
+    if (w.paused) {
+      // paused: no listings, no alerts; forget what was seen, so resuming notes what's up then, silently
+      rows = [];
+      hitsAt = null;
+      delete st.alerted[w.id];
+    } else if (rows === null || (rows && !Array.isArray(rows))) {
       // this item's listings couldn't be read this time: keep the last ones and say so; no new alerts
       hitsError = (rows && rows.error) || 'Could not read the listings';
+      st.errors = addError(st.errors, { source: 'listings', item: name, itemId: w.id, ...((rows && rows.detail) || { message: hitsError }) });
       hitsAt = prevItem ? prevItem.hitsAt || null : null;
       rows = ((prevItem && prevItem.hits) || []).filter(r => r.unit <= max);
     } else {
@@ -77,8 +104,8 @@ async function onResult(data, hits) {
       st.alerted[w.id] = { cfg, seen };
     }
     items[w.id] = x
-      ? { ...x, name, under: rows.length > 0, hits: rows.slice(0, 200), hitCount: rows.length, hitsError, hitsAt }
-      : { name, cheapest: null, listings: 0, under: false, hits: [], hitCount: 0, hitsError, hitsAt };
+      ? { ...x, name, paused: !!w.paused, under: rows.length > 0, hits: rows.slice(0, 200), hitCount: rows.length, hitsError, hitsAt }
+      : { name, paused: !!w.paused, cheapest: null, listings: 0, under: false, hits: [], hitCount: 0, hitsError, hitsAt };
 
     // history: one row whenever an item's cheapest price changes
     const prevCheapest = prevItem ? prevItem.cheapest : undefined;
@@ -105,7 +132,7 @@ async function onResult(data, hits) {
     st.inbox = fresh.concat(st.inbox.filter(e => !keys.has(e.key))).slice(0, MWA_INBOX_CAP);
   }
 
-  const save = { latest: { at: now, items, error: null }, alerted: st.alerted, history: st.history, inbox: st.inbox };
+  const save = { latest: { at: now, items, error: null }, alerted: st.alerted, history: st.history, inbox: st.inbox, errors: st.errors };
   // only the names change here: anything else in the watchlist (a target typed meanwhile) is left as it is
   if (Object.keys(names).length) save.watch = st.watch.map(w => (names[w.id] ? { ...w, name: names[w.id] } : w));
   await chrome.storage.local.set(save);
@@ -117,9 +144,12 @@ async function onResult(data, hits) {
 }
 
 async function onError(error) {
-  const { latest } = await getState();
+  const { latest, errors } = await getState();
   const message = (error && (error.userMessage || error.message)) || 'Unknown error';
-  await chrome.storage.local.set({ latest: { ...(latest || { items: {} }), error: { message, at: Date.now() } } });
+  await chrome.storage.local.set({
+    latest: { ...(latest || { items: {} }), error: { message, at: Date.now() } },
+    errors: addError(errors, { source: 'check', ...(error || {}), message: (error && error.message) || message })
+  });
 }
 
 const dismiss = async (key, at) => {
@@ -136,6 +166,7 @@ async function setBadge(text, color, title) {
 }
 async function updateBadge() {
   const { watch, settings, latest, inbox } = await getState();
+  if (settingsOf(settings).paused) return setBadge('||', '#6b7280', 'Mesos Watch Alerts: all alerts paused');
   if (latest && latest.error && (!latest.at || latest.error.at >= latest.at)) {
     return setBadge('!', '#d97706', 'Mesos Watch Alerts: ' + latest.error.message);
   }
@@ -150,7 +181,13 @@ async function updateBadge() {
   return setBadge('', null, watch.length ? 'Mesos Watch Alerts: watching' : 'Mesos Watch Alerts');
 }
 chrome.storage.onChanged.addListener((c, area) => {
-  if (area === 'local' && (c.inbox || c.watch || c.latest || c.settings)) updateBadge();
+  if (area !== 'local') return;
+  if (c.inbox || c.watch || c.latest || c.settings) updateBadge();
+  // all alerts paused or resumed: forget what was seen, so the first check after resuming notes what's up, silently
+  // (on resume too: a check already running when you paused may have saved it again)
+  if (c.settings && !!(c.settings.oldValue || {}).paused !== !!(c.settings.newValue || {}).paused) {
+    serial(() => chrome.storage.local.set({ alerted: {} }));
+  }
 });
 chrome.alarms.create('stale', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener(a => { if (a.name === 'stale') updateBadge(); });
@@ -228,6 +265,7 @@ async function postWebhook(url, embeds, content) {
     if (/Failed to fetch/i.test(error)) error = 'Could not reach Discord (no permission, or offline)';
   }
   await chrome.storage.local.set({ webhookStatus: { at: Date.now(), ok: !error, error } });
+  if (error) logErrors([{ source: 'discord', message: error }]);
   return { ok: !error, error };
 }
 
@@ -259,6 +297,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'dismiss') return reply(serial(() => dismiss(msg.key, msg.at)));
   if (msg.type === 'clearInbox') return reply(serial(clearInbox));
   if (msg.type === 'focusSite') return reply(focusSite());
+  if (msg.type === 'logError') return reply(logErrors([msg.entry || {}]));
+  if (msg.type === 'clearErrors') return reply(serial(() => chrome.storage.local.set({ errors: [] })));
   if (msg.type === 'testWebhook') return reply(isWebhookUrl(msg.url) ? testWebhook(msg.url.trim()) : Promise.resolve({ ok: false, error: 'Not a Discord webhook URL' }));
   return false;
 });

@@ -64,11 +64,21 @@
         }
         out[id] = [...folded.values()];
       } catch (err) {
-        out[id] = { error: String((err && (err.userMessage || err.message)) || err) };
+        const e = errInfo(err);
+        out[id] = { error: e.userMessage || e.message, detail: e };
       }
     }
     return out;
   }
+
+  // everything the site's errors carry: message ("/browse?…: HTTP 500"), code (the API's short error code, when it sent
+  // one) and userMessage (the API's own words for a refusal). The site's code reads nothing else of the response.
+  const errInfo = err => ({
+    message: String((err && err.message) || err),
+    code: (err && err.code) || null,
+    userMessage: (err && err.userMessage) || null,
+    name: (err && err.name && err.name !== 'Error') ? err.name : null
+  });
 
   let namesLoaded = null;
   async function search(q) {
@@ -101,7 +111,7 @@
       else if (type === 'search') reply(true, await search(payload.q));
       else reply(false, { message: 'unknown request ' + type });
     } catch (err) {
-      reply(false, { message: String((err && err.message) || err), userMessage: (err && err.userMessage) || null });
+      reply(false, errInfo(err));
     }
   });
 })();

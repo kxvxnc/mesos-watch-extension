@@ -32,7 +32,13 @@
     </section>
 
     <section class="card">
-      <h2>Watching <span id="watchCount" class="count"></span></h2>
+      <div class="cardhead">
+        <h2>Watching <span id="watchCount" class="count"></span></h2>
+        <label class="switch" title="Pause or resume every alert at once. Targets are kept.">
+          <input id="allOn" type="checkbox"><span class="slider"></span><span id="allOnText">Alerts on</span></label>
+      </div>
+      <p id="pausedNote" class="paused-note" hidden>All alerts are paused: nothing is being checked. Turn them back on with the switch above;
+        listings that went up while paused won't alert.</p>
       <ul id="list" class="list"></ul>
       <p id="empty" class="empty" hidden>Nothing watched yet. Search for an item above.</p>
     </section>
@@ -57,6 +63,16 @@
         <button id="webhookTest" class="ghost">Send test</button>
       </div>
       <p class="hint" id="webhookInfo"></p>
+    </section>
+
+    <section class="card">
+      <h2>Error log <span id="errCount" class="count"></span></h2>
+      <p class="hint">Everything that failed, newest first, with the full message. A repeating error is one row with a count.</p>
+      <ul id="errors" class="errors"></ul>
+      <div class="row">
+        <button id="copyErrors">Copy all</button>
+        <button id="clearErrors" class="ghost">Clear</button>
+      </div>
     </section>
 
     <section class="card">

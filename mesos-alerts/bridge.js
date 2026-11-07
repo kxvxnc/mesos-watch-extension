@@ -37,17 +37,17 @@
     if (!ready || busy || dead) return;
     busy = true;
     try {
-      const { watch = [] } = await chrome.storage.local.get('watch');
-      if (!watch.length) return;
+      const { watch = [], settings = {} } = await chrome.storage.local.get(['watch', 'settings']);
+      if (!watch.length || settings.paused) return; // all alerts paused: no requests at all
       if (!(await send({ type: 'claim', force }))) return;
       try {
         const data = await ask('poll', { ids: watch.map(w => Number(w.id)) });
         // fetch the full listings only for items that can have one under the max: the summary's cheapest says so,
         // or the item can come in bundles (the summary's cheapest may be a bundle's price, not the price each)
-        const { settings = {} } = await chrome.storage.local.get('settings');
         const dealPct = Number(settings.dealPct) || 0;
         const need = [];
         for (const w of watch) {
+          if (w.paused) continue; // paused item: its price still updates (summary), no listings or alerts
           const x = data[w.id];
           const max = alertMax(w.target, x && x.typical, dealPct);
           if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max });
@@ -73,9 +73,8 @@
     if (area !== 'local' || dead) return;
     if (changes.settings) { schedule(); tick(true); } // a new deal % changes which listings count
     if (changes.watch) {
-      const before = (changes.watch.oldValue || []).map(w => w.id).join();
-      const after = (changes.watch.newValue || []).map(w => w.id).join();
-      if (before !== after) tick(true); // an item was added or removed: fill it in now
+      const sig = list => (list || []).map(w => w.id + (w.paused ? 'p' : '')).join();
+      if (sig(changes.watch.oldValue) !== sig(changes.watch.newValue)) tick(true); // added, removed, paused or resumed: now
     }
   });
 

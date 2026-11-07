@@ -13,12 +13,13 @@ function renderList() {
   const list = $('list');
   list.textContent = '';
   $('empty').hidden = state.watch.length > 0;
-  $('watchCount').textContent = state.watch.length ? `(${state.watch.length})` : '';
+  const nPaused = state.watch.filter(w => w.paused).length;
+  $('watchCount').textContent = state.watch.length ? `(${state.watch.length}${nPaused ? ` · ${nPaused} paused` : ''})` : '';
   const items = (state.latest && state.latest.items) || {};
 
   for (const w of state.watch) {
     const x = items[w.id];
-    const li = el('li', 'item' + (x && x.hitCount ? ' under' : ''));
+    const li = el('li', 'item' + (w.paused ? ' paused' : x && x.hitCount ? ' under' : ''));
 
     const name = el('div', 'name', w.name || `Item ${w.id}`);
     name.title = `${w.name || ''} (ID ${w.id})`;
@@ -61,12 +62,22 @@ function renderList() {
     const rm = el('button', 'icon', '×');
     rm.title = 'Stop watching';
     rm.addEventListener('click', () => removeItem(w.id));
-    ctl.append(lab, input, rm);
+    // this item's own on/off: paused keeps the target for later
+    const sw = el('label', 'switch');
+    sw.title = w.paused ? 'Paused: no alerts for this item. Turn on to resume.' : 'On: alerts for this item. Turn off to pause it.';
+    const on = el('input');
+    on.type = 'checkbox';
+    on.checked = !w.paused;
+    on.addEventListener('change', () => setWatch(list => list.map(o => (o.id === w.id ? { ...o, paused: !on.checked } : o))));
+    sw.append(on, el('span', 'slider'), el('span', null, w.paused ? 'paused' : 'on'));
+    ctl.append(sw, lab, input, rm);
 
     li.append(name, price, meta, ctl);
 
+    if (w.paused) meta.append(el('div', null, 'Paused: no alerts until you turn it back on. Its target is kept.'));
+
     // what's at or under the target right now, newest first
-    if (x && x.hitCount) {
+    if (!w.paused && x && x.hitCount) {
       const ul = el('ul', 'hits');
       ul.append(el('li', 'head', `${x.hitCount} offer${x.hitCount > 1 ? 's' : ''} at or under target now`));
       const open = expanded.has(w.id);
@@ -154,7 +165,10 @@ $('search').addEventListener('input', () => {
     if (/^\d{7}$/.test(q) && !rows.some(([id]) => String(id) === q)) rows.unshift([Number(q), `Item ${q}`]);
     if (rows.length) showResults(rows);
     else if (!r) showResults([], 'Open (or reload) a mesos.watch tab to search by name, or type a 7-digit item ID.');
-    else if (!r.ok) showResults([], 'Search failed: ' + ((r.error && r.error.message) || 'unknown error'));
+    else if (!r.ok) {
+      showResults([], 'Search failed: ' + ((r.error && (r.error.userMessage || r.error.message)) || 'unknown error') + ' (details in the Error log below)');
+      chrome.runtime.sendMessage({ type: 'logError', entry: { source: 'search', ...(r.error || {}), message: (r.error && r.error.message) || 'unknown error' } });
+    }
     else showResults([], 'No items match.');
   }, 250);
 });
@@ -168,6 +182,14 @@ $('search').addEventListener('keydown', e => {
 $('search').addEventListener('blur', () => setTimeout(hideResults, 100));
 
 /* ---------- settings & export ---------- */
+function renderPause() {
+  const paused = !!state.settings.paused;
+  $('allOn').checked = !paused;
+  $('allOnText').textContent = paused ? 'All paused' : 'Alerts on';
+  $('pausedNote').hidden = !paused;
+}
+$('allOn').addEventListener('change', () => { state.settings.paused = !$('allOn').checked; renderPause(); saveSettings(); });
+
 function renderSettings() {
   $('interval').value = state.settings.intervalSec;
   $('deal').value = state.settings.dealPct;
@@ -188,6 +210,44 @@ $('deal').addEventListener('change', () => {
   saveSettings();
 });
 $('notify').addEventListener('change', () => { state.settings.notify = $('notify').checked; saveSettings(); });
+
+/* ---------- error log ---------- */
+const SOURCE = { check: 'Check', listings: 'Listings', discord: 'Discord', search: 'Search' };
+const when = t => new Date(t).toLocaleString();
+const errText = e => [
+  `${when(e.at)}${e.count > 1 ? ` (×${e.count}, last ${when(e.lastAt)})` : ''} · ${SOURCE[e.source] || e.source}${e.item ? ' · ' + e.item + (e.itemId ? ` #${e.itemId}` : '') : ''}`,
+  e.message,
+  e.code ? `code: ${e.code}` : '',
+  e.userMessage && e.userMessage !== e.message ? `site says: ${e.userMessage}` : '',
+  e.name ? `type: ${e.name}` : ''
+].filter(Boolean).join('\n');
+
+async function renderErrors() {
+  const { errors = [] } = await chrome.storage.local.get('errors');
+  const ul = $('errors');
+  ul.textContent = '';
+  $('errCount').textContent = errors.length ? `(${errors.length})` : '';
+  $('copyErrors').disabled = $('clearErrors').disabled = !errors.length;
+  if (!errors.length) { ul.append(el('li', 'none', 'No errors logged.')); return; }
+  for (const e of errors) {
+    const li = el('li');
+    const top = el('div', 'top');
+    top.append(el('span', 'src', SOURCE[e.source] || e.source));
+    if (e.item) top.append(el('b', null, e.item));
+    top.append(el('span', 'when', `${when(e.lastAt || e.at)}${e.count > 1 ? ` · ×${e.count} since ${when(e.at)}` : ''}`));
+    li.append(top, el('div', 'msg', e.message));
+    const extra = [e.code && `code: ${e.code}`, e.userMessage && e.userMessage !== e.message && `site says: ${e.userMessage}`, e.name && `type: ${e.name}`].filter(Boolean);
+    if (extra.length) li.append(el('div', 'extra', extra.join(' · ')));
+    ul.append(li);
+  }
+}
+$('copyErrors').addEventListener('click', async () => {
+  const { errors = [] } = await chrome.storage.local.get('errors');
+  await navigator.clipboard.writeText(errors.map(errText).join('\n\n'));
+  $('copyErrors').textContent = 'Copied';
+  setTimeout(() => { $('copyErrors').textContent = 'Copy all'; }, 1500);
+});
+$('clearErrors').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'clearErrors' }));
 
 /* ---------- Discord webhook ---------- */
 let webhookNote = null; // a message from Save/Test, shown until the next storage update
@@ -255,7 +315,9 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if ((changes.latest || changes.watch) && !editing) renderList();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
   if (changes.history || changes.settings) renderSettings();
+  if (changes.settings) renderPause();
   if (changes.settings || changes.webhookStatus) renderWebhook();
+  if (changes.errors) renderErrors();
 });
 setInterval(() => renderStatus(state), 5000);
 wireHeader(() => state, false);
@@ -265,6 +327,8 @@ wireHeader(() => state, false);
   renderList();
   renderSettings();
   renderWebhook();
+  renderErrors();
+  renderPause();
   renderStatus(state);
   $('search').focus();
 })();

@@ -23,7 +23,9 @@ function renderInbox() {
   $('clearAll').hidden = !n;
   $('empty').hidden = n > 0;
   const w = state.watch.length;
-  $('emptyText').textContent = w
+  $('emptyText').textContent = state.settings.paused
+    ? 'All alerts are paused. Press the play button at the top to resume.'
+    : w
     ? `Nothing new. Watching ${w} item${w > 1 ? 's' : ''}: new listings at or under your targets show up here.`
     : 'No items watched yet. Add some and set a target price to get alerts.';
   $('setup').textContent = w ? 'Edit alerts' : 'Set up alerts';
@@ -62,6 +64,20 @@ $('clearAll').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'clearInbox' });
 });
 
+// pause or resume every alert (targets are kept)
+const PAUSE_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1"/><rect x="7" y="1.5" width="3" height="9" rx="1"/></svg>';
+const PLAY_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.6v8.8a.6.6 0 0 0 .9.5l7-4.4a.6.6 0 0 0 0-1L3.9 1.1a.6.6 0 0 0-.9.5z"/></svg>';
+function renderPause() {
+  const paused = !!state.settings.paused;
+  $('pause').innerHTML = paused ? PLAY_SVG : PAUSE_SVG;
+  $('pause').title = paused ? 'Resume all alerts' : 'Pause all alerts';
+  $('pause').classList.toggle('on', paused);
+}
+$('pause').addEventListener('click', async () => {
+  const { settings = {} } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({ settings: { ...settings, paused: !settings.paused } });
+});
+
 const openSettings = () => { chrome.runtime.openOptionsPage(); window.close(); };
 $('settings').addEventListener('click', openSettings);
 $('setup').addEventListener('click', openSettings);
@@ -71,6 +87,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   await load();
   if (changes.inbox || changes.latest || changes.watch) renderInbox();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
+  if (changes.settings) { renderPause(); renderInbox(); }
 });
 setInterval(() => { renderStatus(state); renderInbox(); }, 15000); // keeps the "Xm ago" times fresh
 wireHeader(() => state, true);
@@ -78,5 +95,6 @@ wireHeader(() => state, true);
 (async () => {
   await load();
   renderInbox();
+  renderPause();
   renderStatus(state);
 })();

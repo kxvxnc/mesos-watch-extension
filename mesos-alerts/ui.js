@@ -28,6 +28,8 @@ async function renderStatus(st) {
   banner.hidden = true;
   const show = text => { banner.hidden = false; $('bannerText').textContent = text; };
 
+  if (st.settings.paused) { status.textContent = 'all alerts paused'; return; }
+
   if (!tabs.length) {
     status.textContent = 'not checking';
     return show('Alerts only run while a mesos.watch tab is open. Pin it so it stays.');

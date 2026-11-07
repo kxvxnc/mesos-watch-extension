@@ -10,8 +10,32 @@ main { max-width: 820px; margin: 0 auto; padding: 16px 24px 48px; display: flex;
 .card input[type=number] { width: 72px; padding: 3px 6px; }
 .card .row { display: flex; gap: 8px; margin-top: 10px; }
 .card .hint { margin: 8px 0 0; }
+.cardhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cardhead h2 { margin: 0; }
+.paused-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; color: var(--muted);
+  background: rgba(139, 146, 163, .1); border: 1px solid var(--line); }
+/* on/off switch */
+.card label.switch, .item label.switch { display: inline-flex; align-items: center; gap: 7px; margin: 0; cursor: pointer;
+  font-size: 12px; color: var(--muted); user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .slider { position: relative; width: 30px; height: 17px; border-radius: 9px; background: var(--line); transition: background .15s; flex: none; }
+.switch .slider::after { content: ''; position: absolute; left: 2px; top: 2px; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--muted); transition: transform .15s, background .15s; }
+.switch input:checked + .slider { background: rgba(47, 191, 113, .45); }
+.switch input:checked + .slider::after { transform: translateX(13px); background: var(--good); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--gold); outline-offset: 2px; }
+.item.paused .name, .item.paused .price, .item.paused .meta { opacity: .5; }
 .card input.wide { flex: 1; min-width: 0; }
 .card input.wide.err { border-color: var(--bad); }
+.errors { list-style: none; margin: 10px 0 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.errors li { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.errors li:last-child { border-bottom: 0; }
+.errors li.none { color: var(--muted); }
+.errors .top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.errors .src { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--warn); }
+.errors .when { color: var(--muted); font-size: 11.5px; margin-left: auto; }
+.errors .msg { margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.errors .extra { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 #webhookInfo.ok { color: var(--good); } #webhookInfo.bad { color: var(--warn); }
 
 .add { position: relative; }
