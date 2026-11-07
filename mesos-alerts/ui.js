@@ -26,7 +26,12 @@ async function renderStatus(st) {
   const dot = $('dot'), status = $('status'), banner = $('banner');
   dot.className = 'dot';
   banner.hidden = true;
-  const show = text => { banner.hidden = false; $('bannerText').textContent = text; };
+  // text: a string, or nodes for the banner; button: show "Open mesos.watch"
+  const show = (text, button = true) => {
+    banner.hidden = false;
+    $('bannerText').replaceChildren(...[].concat(text));
+    $('openSite').hidden = !button;
+  };
 
   if (st.settings.paused) { status.textContent = 'all alerts paused'; return; }
 
@@ -47,7 +52,36 @@ async function renderStatus(st) {
   dot.classList.add(stale || failing.length ? 'warn' : 'ok');
   status.textContent = (stale ? 'stalled · ' : failing.length ? 'listings failing · ' : '') + 'checked ' + ago(age);
   if (stale) show('The mesos.watch tab stopped checking. Reload it, or make sure Chrome isn\'t putting it to sleep.');
-  else if (failing.length) show(`Couldn't read the listings for ${failing.map(x => x.name).join(', ')}: ${failing[0].hitsError}. Their alerts are paused until it works again.`);
+  else if (failing.length) show(failingBanner(failing, !!$('errors')), false); // the settings page has the Error log
+}
+
+// An error as a person reads it: the request path dropped, the HTTP status in words.
+// "/browse?item=2040506&pmax=15000: HTTP 500" -> "mesos.watch's server had an error (HTTP 500)"
+function friendlyError(msg) {
+  msg = String(msg || 'Unknown error');
+  const m = msg.match(/HTTP (\d{3})/);
+  if (m) {
+    const c = Number(m[1]);
+    if (c >= 500) return `mesos.watch's server had an error (HTTP ${c})`;
+    if (c === 429) return 'mesos.watch asked to slow down (HTTP 429)';
+    if (c === 401 || c === 403) return `mesos.watch refused the request (HTTP ${c}). Reloading the mesos.watch tab usually fixes it`;
+    return `mesos.watch answered HTTP ${c}`;
+  }
+  return msg.replace(/^\/\S*:\s*/, '');
+}
+
+// the banner when some items' listings couldn't be read: a headline, the items, then why in words
+function failingBanner(failing, onSettingsPage) {
+  const n = failing.length;
+  const reasons = [...new Set(failing.map(x => friendlyError(x.hitsError)))];
+  const ul = el('ul');
+  const SHOW = 5;
+  for (const x of failing.slice(0, SHOW)) ul.append(el('li', null, x.name + (reasons.length > 1 ? `: ${friendlyError(x.hitsError)}` : '')));
+  if (n > SHOW) ul.append(el('li', null, `and ${n - SHOW} more`));
+  const why = (reasons.length === 1 ? reasons[0] + '. ' : '') +
+    `${n > 1 ? 'These items' : 'This item'} won't alert until it works again; it retries every check. ` +
+    (onSettingsPage ? 'Full details in the Error log below.' : 'Full details on the settings page (⚙).');
+  return [el('b', null, `Couldn't read the listings for ${n} item${n > 1 ? 's' : ''}`), ul, el('p', null, why)];
 }
 
 // watched items whose listings couldn't be read on the last check

@@ -41,7 +41,7 @@ function renderList() {
     const meta = el('div', 'meta', metaText);
     if (x && x.hitsError) {
       const last = x.hitsAt ? ` Last read ${ago(Date.now() - x.hitsAt)}.` : '';
-      meta.append(el('div', 'err', `Listings not updating: ${x.hitsError}.${last} No alerts for it until this clears.`));
+      meta.append(el('div', 'err', `Listings not updating: ${friendlyError(x.hitsError)}.${last} No alerts for it until this clears.`));
     }
 
     const ctl = el('div', 'ctl');

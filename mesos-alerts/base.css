@@ -28,7 +28,11 @@ header { display: flex; justify-content: space-between; align-items: center; pad
 
 .banner { padding: 8px 10px; border-radius: 8px; background: rgba(229, 160, 58, .12);
   border: 1px solid rgba(229, 160, 58, .35); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.banner span { font-size: 12px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.banner .btext { font-size: 12px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.banner .btext b { display: block; font-weight: 600; }
+.banner .btext ul { margin: 4px 0; padding-left: 18px; }
+.banner .btext li { margin: 1px 0; }
+.banner .btext p { margin: 4px 0 0; color: var(--muted); }
 .banner button { white-space: nowrap; }
 
 .empty { color: var(--muted); text-align: center; padding: 18px 24px; margin: 0; }
