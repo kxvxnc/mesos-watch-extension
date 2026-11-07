@@ -44,6 +44,26 @@
     </section>
 
     <section class="card">
+      <h2>Share your list</h2>
+      <p class="hint">Copy or save your items and targets to move them to another computer or give them to another player.
+        Only items and targets are included: not your Discord webhook, alerts or price log.</p>
+      <div class="row">
+        <button id="shareCopy">Copy list</button>
+        <button id="shareDownload" class="ghost">Download file</button>
+      </div>
+      <h3>Import</h3>
+      <textarea id="importText" rows="3" placeholder="Paste a copied list here, or choose a file" spellcheck="false"></textarea>
+      <input id="importFile" type="file" accept=".json,application/json,text/plain" hidden>
+      <p class="hint" id="importInfo"></p>
+      <div class="row">
+        <button id="importChoose" class="ghost">Choose file…</button>
+        <span class="grow"></span>
+        <button id="importAdd" disabled>Add to my list</button>
+        <button id="importReplace" class="ghost" disabled>Replace my list</button>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Settings</h2>
       <label>Check every <input id="interval" type="number" min="30" step="15"> seconds
         <span class="hint">(60 or more recommended)</span></label>
@@ -87,6 +107,7 @@
 
 <script src="util.js"></script>
 <script src="ui.js"></script>
+<script src="share.js"></script>
 <script src="options.js"></script>
 </body>
 </html>

@@ -306,6 +306,81 @@ $('clearLog').addEventListener('click', async () => {
   await chrome.storage.local.set({ history: [] });
 });
 
+/* ---------- share: export / import the watchlist ---------- */
+const flash = (btn, text) => { const t = btn.textContent; btn.textContent = text; setTimeout(() => { btn.textContent = t; }, 1500); };
+$('shareCopy').addEventListener('click', async () => {
+  if (!state.watch.length) return flash($('shareCopy'), 'Nothing to copy');
+  await navigator.clipboard.writeText(exportWatch(state.watch));
+  flash($('shareCopy'), `Copied ${state.watch.length} item${state.watch.length > 1 ? 's' : ''}`);
+});
+$('shareDownload').addEventListener('click', () => {
+  if (!state.watch.length) return flash($('shareDownload'), 'Nothing to save');
+  const url = URL.createObjectURL(new Blob([exportWatch(state.watch)], { type: 'application/json' }));
+  const a = el('a');
+  a.href = url;
+  a.download = `mesos-alerts-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+});
+
+let pending = null; // the parsed list in the import box
+function renderImport(doneText) {
+  const info = $('importInfo');
+  info.className = 'hint';
+  $('importAdd').disabled = $('importReplace').disabled = !pending;
+  if (doneText) { info.textContent = doneText; info.classList.add('ok'); return; }
+  const text = $('importText').value.trim();
+  pending = null;
+  if (!text) { info.textContent = ''; $('importAdd').disabled = $('importReplace').disabled = true; return; }
+  try { pending = parseWatchImport(text); } catch (e) {
+    info.textContent = e.message; info.classList.add('bad');
+    $('importAdd').disabled = $('importReplace').disabled = true;
+    return;
+  }
+  $('importAdd').disabled = $('importReplace').disabled = false;
+  const n = pending.items.length, add = importPlan(state.watch, pending.items, false);
+  const rep = importPlan(state.watch, pending.items, true);
+  const parts = [`${add.added} new`];
+  if (add.changed) parts.push(`${add.changed} with a different target`);
+  if (add.same) parts.push(`${add.same} already watched`);
+  info.textContent = `${n} item${n > 1 ? 's' : ''}: ${parts.join(', ')}.` +
+    (pending.skipped ? ` ${pending.skipped} unreadable entr${pending.skipped > 1 ? 'ies' : 'y'} skipped.` : '') +
+    (rep.removed ? ` Replacing would remove ${rep.removed} of yours.` : '');
+}
+$('importText').addEventListener('input', () => renderImport());
+$('importChoose').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async () => {
+  const f = $('importFile').files[0];
+  $('importFile').value = '';
+  if (!f) return;
+  if (f.size > 1e6) { $('importText').value = ''; renderImport(); $('importInfo').textContent = 'That file is too big to be an alert list.'; $('importInfo').classList.add('bad'); return; }
+  $('importText').value = await f.text();
+  renderImport();
+});
+
+async function doImport(replace) {
+  if (!pending) return;
+  const { items } = pending;
+  const { watch = [] } = await chrome.storage.local.get('watch');
+  const plan = importPlan(watch, items, replace);
+  if (replace && plan.removed && !confirm(`Replace your list? ${plan.removed} item${plan.removed > 1 ? 's' : ''} you watch now will be removed.`)) return;
+  const dropped = replace ? watch.filter(w => !items.some(i => i.id === w.id)).map(w => w.id) : [];
+  pending = null;
+  $('importText').value = '';
+  await setWatch(list => applyImport(list, items, replace));
+  if (dropped.length) {
+    // same as removing them by hand: forget their last results
+    const { latest } = await chrome.storage.local.get('latest');
+    if (latest && latest.items) { for (const id of dropped) delete latest.items[id]; await chrome.storage.local.set({ latest }); }
+  }
+  const bits = [`${plan.added} added`];
+  if (plan.changed) bits.push(`${plan.changed} updated`);
+  if (plan.removed) bits.push(`${plan.removed} removed`);
+  renderImport(`Imported: ${bits.join(', ')}. Listings already up don't alert; new ones at or under the targets will.`);
+}
+$('importAdd').addEventListener('click', () => doImport(false));
+$('importReplace').addEventListener('click', () => doImport(true));
+
 /* ---------- live updates ---------- */
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
@@ -318,6 +393,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if (changes.settings) renderPause();
   if (changes.settings || changes.webhookStatus) renderWebhook();
   if (changes.errors) renderErrors();
+  if (changes.watch && pending) renderImport(); // the preview counts depend on the current list
 });
 setInterval(() => renderStatus(state), 5000);
 wireHeader(() => state, false);

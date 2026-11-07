@@ -21,6 +21,8 @@ You get an alert for each new listing at or under the target, as the price each.
 
 **Pausing:** each item on the settings page has an on/off switch, and "Alerts on" at the top of the list (or the pause button in the popup) pauses everything. Targets are kept. While everything is paused the tab makes no requests. Listings that went up while paused don't alert when you resume.
 
+**Sharing your list:** on the settings page, "Share your list" has **Copy list** (paste it in Discord or a note) and **Download file** (a small `.json`). On the other machine, or another player's, paste it into the Import box or click **Choose file…**. It shows what will change first, then **Add to my list** (adds new items; items you already watch take the imported target and keep their on/off) or **Replace my list** (your list becomes the imported one). Only items and targets are shared: never your Discord webhook, alerts or price log. Listings already up when you import don't alert.
+
 **Discord (optional):** paste a channel webhook URL on the settings page (Discord: channel settings > Integrations > Webhooks > New Webhook > Copy Webhook URL), click Save and allow Chrome to post to Discord, then "Send test". Each check with new alerts posts one message with a card per alert (up to 10 a message). Clear the field and Save to turn it off.
 
 ## How it works
