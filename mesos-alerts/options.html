@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesos Watch Alerts: settings</title>
+<link rel="icon" href="icons/32.png">
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <header>
+    <div class="title"><img src="icons/32.png" alt="" width="20" height="20"> Mesos Watch Alerts</div>
+    <div class="status"><span id="dot" class="dot"></span><span id="status">…</span>
+      <button id="refresh" class="icon" title="Check now">↻</button></div>
+  </header>
+
+  <main>
+    <div id="banner" class="banner" hidden>
+      <span id="bannerText"></span>
+      <button id="openSite">Open mesos.watch</button>
+    </div>
+
+    <section class="card">
+      <h2>Add an item</h2>
+      <div class="add">
+        <input id="search" type="text" placeholder="Search by name or 7-digit item ID" autocomplete="off" spellcheck="false">
+        <ul id="results" class="results" hidden></ul>
+      </div>
+      <p class="hint">Then set a target: you get an alert for each new listing at or under it, as the price each
+        (500k, 1.2m and 2b all work). Listings already up when you set it are shown below but don't alert.</p>
+    </section>
+
+    <section class="card">
+      <h2>Watching <span id="watchCount" class="count"></span></h2>
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="empty" hidden>Nothing watched yet. Search for an item above.</p>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <label>Check every <input id="interval" type="number" min="30" step="15"> seconds
+        <span class="hint">(60 or more recommended)</span></label>
+      <label>Also alert when a listing is <input id="deal" type="number" min="0" max="90" step="5">% under the item's typical price
+        <span class="hint">(0 = off, applies to every item)</span></label>
+      <label class="check"><input id="notify" type="checkbox"> Desktop notifications
+        <span class="hint">(alerts still collect in the popup when off)</span></label>
+    </section>
+
+    <section class="card">
+      <h2>Price log</h2>
+      <p class="hint" id="logInfo"></p>
+      <div class="row">
+        <button id="export">Export as CSV</button>
+        <button id="clearLog" class="ghost">Clear log</button>
+      </div>
+    </section>
+  </main>
+
+<script src="util.js"></script>
+<script src="ui.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

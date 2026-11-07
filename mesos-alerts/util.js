@@ -1,6 +1,10 @@
 // Shared by background.js (importScripts) and popup.js (<script>).
 const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true };
 const MWA_HISTORY_CAP = 20000;
+const MWA_INBOX_CAP = 200;
+
+// one offer: the same shop, price and bundle size (a shop's stacks of it are folded into one)
+const listingKey = r => `${r.store}|${r.price}|${r.per}`;
 const MWA_SITE = 'https://mesos.watch/';
 
 // 1234 -> "1,234", 45000 -> "45k", 1250000 -> "1.25m", 2000000000 -> "2b"

@@ -1,68 +1,22 @@
-:root {
-  --bg: #14161b; --panel: #1c1f26; --line: #2a2e38; --text: #e7e9ee; --muted: #8b92a3;
-  --gold: #f2b544; --good: #2fbf71; --good-bg: rgba(47, 191, 113, .12); --warn: #e5a03a; --bad: #e5484d;
-}
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
-body { margin: 0; width: 380px; background: var(--bg); color: var(--text);
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
-  border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-button:hover { border-color: var(--gold); }
-button.ghost { background: transparent; color: var(--muted); }
-button.icon { padding: 0 6px; line-height: 20px; border: 0; background: transparent; color: var(--muted); font-size: 15px; }
-button.icon:hover { color: var(--text); }
-input[type=text], input[type=number] { font: inherit; color: var(--text); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; outline: none; }
-input:focus { border-color: var(--gold); }
+body { width: 380px; }
+.status .icon { padding: 0 4px; }
+.banner { margin: 10px 12px 0; }
 
-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px;
-  border-bottom: 1px solid var(--line); }
-.title { display: flex; align-items: center; gap: 7px; font-weight: 600; }
-.status { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.dot.ok { background: var(--good); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+.bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px 6px; }
+.bar #count { font-weight: 600; }
+.bar button { padding: 2px 8px; font-size: 12px; }
 
-.banner { margin: 10px 12px 0; padding: 8px 10px; border-radius: 8px; background: rgba(229, 160, 58, .12);
-  border: 1px solid rgba(229, 160, 58, .35); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.banner span { font-size: 12px; }
-.banner button { white-space: nowrap; }
+.alerts { list-style: none; margin: 0; padding: 0 12px 12px; max-height: 470px; overflow-y: auto; }
+.alert { display: grid; grid-template-columns: 1fr auto auto; gap: 1px 8px; align-items: start; padding: 8px 6px 8px 10px;
+  margin-bottom: 6px; background: var(--panel); border: 1px solid rgba(47, 191, 113, .45); border-radius: 8px; cursor: pointer; }
+.alert:hover { border-color: var(--good); }
+.alert .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert .price { font-weight: 700; color: var(--good); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.alert .x { grid-row: 1 / span 3; grid-column: 3; }
+.alert .where, .alert .why { grid-column: 1 / span 2; color: var(--muted); font-size: 11.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert .where { color: var(--text); }
+.alert.gone { border-color: var(--line); opacity: .6; }
+.alert.gone .price { color: var(--muted); text-decoration: line-through; }
 
-.add { position: relative; padding: 10px 12px 4px; }
-.add input { width: 100%; }
-.results { position: absolute; left: 12px; right: 12px; top: 44px; z-index: 5; margin: 0; padding: 4px;
-  list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  max-height: 260px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-.results li { padding: 6px 8px; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
-.results li:hover, .results li.sel { background: var(--line); }
-.results li.note { cursor: default; color: var(--muted); }
-.results .id { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-
-.list { list-style: none; margin: 6px 0 0; padding: 0 12px; max-height: 360px; overflow-y: auto; }
-.item { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 10px; margin-bottom: 6px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-.item.under { border-color: rgba(47, 191, 113, .55); background: var(--good-bg); }
-.item .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .name small { color: var(--muted); font-weight: 400; margin-left: 4px; }
-.item .price { text-align: right; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--gold); }
-.item.under .price { color: var(--good); }
-.item .meta { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .ctl { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
-.item .ctl input { width: 88px; padding: 3px 6px; text-align: right; font-size: 12px; }
-.item .ctl input.err { border-color: var(--bad); }
-.item .ctl label { color: var(--muted); font-size: 11px; }
-.item .hits { grid-column: 1 / -1; list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--line); font-size: 11.5px; }
-.item .hits li { display: flex; gap: 8px; padding: 1px 0; }
-.item .hits b { color: var(--good); min-width: 62px; font-variant-numeric: tabular-nums; }
-.item .hits span, .item .hits .more { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .hits span { flex: 1; min-width: 0; }
-.item .hits i { color: var(--muted); font-style: normal; white-space: nowrap; }
-
-.empty { color: var(--muted); text-align: center; padding: 18px 24px; margin: 0; }
-
-.settings { margin: 6px 12px 12px; border-top: 1px solid var(--line); padding-top: 8px; }
-.settings summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-.settings label { display: block; margin: 8px 0; font-size: 12px; }
-.settings input[type=number] { width: 64px; padding: 3px 6px; }
-.settings .row { display: flex; gap: 8px; margin-top: 8px; }
-.hint { color: var(--muted); font-size: 11px; }
+.empty p { margin: 0 0 10px; }

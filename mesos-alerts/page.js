@@ -35,7 +35,7 @@
 
   // Every listing of each item at or under its max price each, on every channel, newest first. The API filters by the
   // price each (pmax), as the site's own price filter does; rows carry the bundle price, so it's checked again here
-  // (a bundle of 100 for 5m is 50k each). A failed item comes back as null.
+  // (a bundle of 100 for 5m is 50k each). A failed item comes back as {error}.
   async function listings(items) {
     const L = await waitLive();
     const out = {};
@@ -63,8 +63,8 @@
           else folded.set(k, { ...r, stacks: 1, qty: r.per * r.bundles });
         }
         out[id] = [...folded.values()];
-      } catch {
-        out[id] = null;
+      } catch (err) {
+        out[id] = { error: String((err && (err.userMessage || err.message)) || err) };
       }
     }
     return out;

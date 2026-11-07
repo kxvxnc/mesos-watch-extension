@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8">
 <title>Mesos Watch Alerts</title>
+<link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <header>
     <div class="title"><img src="icons/32.png" alt="" width="18" height="18"> Mesos Watch Alerts</div>
     <div class="status"><span id="dot" class="dot"></span><span id="status">…</span>
-      <button id="refresh" class="icon" title="Check now">↻</button></div>
+      <button id="refresh" class="icon" title="Check now">↻</button>
+      <button id="settings" class="icon" title="Set up alerts (opens in a tab)">⚙</button></div>
   </header>
 
   <div id="banner" class="banner" hidden>
@@ -17,27 +19,20 @@
     <button id="openSite">Open mesos.watch</button>
   </div>
 
-  <section class="add">
-    <input id="search" type="text" placeholder="Add an item: search by name or ID" autocomplete="off" spellcheck="false">
-    <ul id="results" class="results" hidden></ul>
-  </section>
+  <div class="bar">
+    <span id="count">New alerts</span>
+    <button id="clearAll" class="ghost" hidden>Clear all</button>
+  </div>
 
-  <ul id="list" class="list"></ul>
-  <p id="empty" class="empty" hidden>Nothing watched yet. Search for an item above, then set a target price.</p>
+  <ul id="alerts" class="alerts"></ul>
 
-  <details class="settings">
-    <summary>Settings &amp; export</summary>
-    <label>Check every <input id="interval" type="number" min="30" step="15"> seconds</label>
-    <label>Also alert when an item is <input id="deal" type="number" min="0" max="90" step="5">% under its typical price <span class="hint">(0 = off)</span></label>
-    <label class="check"><input id="notify" type="checkbox"> Desktop notifications</label>
-    <div class="row">
-      <button id="export">Export price log (CSV)</button>
-      <button id="clearLog" class="ghost">Clear log</button>
-    </div>
-    <p class="hint" id="logInfo"></p>
-  </details>
+  <div id="empty" class="empty" hidden>
+    <p id="emptyText"></p>
+    <button id="setup">Set up alerts</button>
+  </div>
 
 <script src="util.js"></script>
+<script src="ui.js"></script>
 <script src="popup.js"></script>
 </body>
 </html>
