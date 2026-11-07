@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mesos Watch Alerts",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Watchlist and price alerts for mesos.watch. Runs inside an open mesos.watch tab using the site's own session.",
   "permissions": [
     "storage",

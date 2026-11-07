@@ -1,11 +1,12 @@
 // Watchlist export/import (settings page). The format is JSON, so it can be pasted in Discord or saved as a file:
-// {"app":"mesos-watch-alerts","v":1,"items":[{"id":2000000,"name":"Item","target":500000,"paused":true}]}
-// Only items and targets travel: never the Discord webhook, alerts or price log.
+// {"app":"mesos-watch-alerts","v":1,"items":[{"id":1302000,"name":"Item","target":500000,"minStats":{"watk":20},"paused":true}]}
+// Only items, targets and stat filters travel: never the Discord webhook, alerts or price log.
 const SHARE_APP = 'mesos-watch-alerts';
 
 function exportWatch(watch) {
   const items = watch.map(w => {
     const o = { id: w.id, name: w.name || null, target: w.target > 0 ? w.target : 0 };
+    if (hasMinStats(w.minStats)) o.minStats = w.minStats;
     if (w.paused) o.paused = true;
     return o;
   });
@@ -33,7 +34,13 @@ function parseWatchImport(text) {
     target = typeof target === 'number' ? Math.round(target) : parseMesos(target);
     if (!(target >= 0)) target = 0;
     const name = r && typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 100) : null;
-    byId.set(id, { id, name, target, paused: !!(r && r.paused === true) }); // a repeated ID: the last one wins
+    const item = { id, name, target, paused: !!(r && r.paused === true) };
+    // stat minimums: equips only, known stats, whole numbers; anything else is dropped
+    const ms = r && typeof r.minStats === 'object' && r.minStats && isEquip(id) ? r.minStats : null;
+    const min = {};
+    if (ms) for (const [k] of MWA_STATS) { const v = Number(ms[k]); if (ms[k] != null && Number.isInteger(v) && v >= 0 && v <= 99999) min[k] = v; }
+    if (hasMinStats(min)) item.minStats = min;
+    byId.set(id, item); // a repeated ID: the last one wins
   }
   if (!byId.size) throw new Error('No items found in that list.');
   return { items: [...byId.values()], skipped };
@@ -47,15 +54,16 @@ function importPlan(watch, items, replace) {
   for (const i of items) {
     const w = mine.get(i.id);
     if (!w) added++;
-    else if (replace ? (w.target !== i.target || !!w.paused !== i.paused) : i.target > 0 && w.target !== i.target) changed++;
+    else if (replace ? (w.target !== i.target || !!w.paused !== i.paused || minStatsSig(w.minStats) !== minStatsSig(i.minStats))
+      : i.target > 0 && (w.target !== i.target || (hasMinStats(i.minStats) && minStatsSig(w.minStats) !== minStatsSig(i.minStats)))) changed++;
     else same++;
   }
   const removed = replace ? watch.filter(w => !theirs.has(w.id)).length : 0;
   return { added, changed, same, removed };
 }
 
-// Add: new items are appended; an item you already watch takes the imported target (if it has one) and keeps your
-// own on/off and name. Replace: the list becomes the imported one.
+// Add: new items are appended; an item you already watch takes the imported target (if it has one) and its stat
+// filter (if it has one), and keeps your own on/off and name. Replace: the list becomes the imported one.
 function applyImport(watch, items, replace) {
   if (replace) {
     const mine = new Map(watch.map(w => [w.id, w]));
@@ -64,7 +72,10 @@ function applyImport(watch, items, replace) {
   const byId = new Map(items.map(i => [i.id, i]));
   const out = watch.map(w => {
     const i = byId.get(w.id);
-    return i && i.target > 0 ? { ...w, target: i.target, name: w.name || i.name } : w;
+    if (!i || !(i.target > 0)) return w;
+    const o = { ...w, target: i.target, name: w.name || i.name };
+    if (hasMinStats(i.minStats)) o.minStats = i.minStats;
+    return o;
   });
   const have = new Set(watch.map(w => w.id));
   return out.concat(items.filter(i => !have.has(i.id)));

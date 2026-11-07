@@ -45,6 +45,7 @@ function renderInbox() {
       price,
       x,
       el('span', 'where', placeOf(a)),
+      ...(a.stats && statsText(a.stats) ? [el('span', 'stats', statsText(a.stats))] : []),
       el('span', 'why', `${gone ? 'No longer listed · ' : ''}${a.tag || a.why} · alerted ${ago(Date.now() - a.at)}${listed}`)
     );
     li.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'focusSite' }).then(() => window.close()));

@@ -50,7 +50,7 @@
           if (w.paused) continue; // paused item: its price still updates (summary), no listings or alerts
           const x = data[w.id];
           const max = alertMax(w.target, x && x.typical, dealPct);
-          if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max });
+          if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max, min: hasMinStats(w.minStats) ? w.minStats : null });
         }
         const hits = need.length ? await ask('listings', { items: need }, 30000 + 15000 * need.length) : {};
         await send({ type: 'result', data, hits });

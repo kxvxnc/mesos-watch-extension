@@ -36,10 +36,15 @@
   // Every listing of each item at or under its max price each, on every channel, newest first. The API filters by the
   // price each (pmax), as the site's own price filter does; rows carry the bundle price, so it's checked again here
   // (a bundle of 100 for 5m is 50k each). A failed item comes back as {error}.
+  // min: an equip's stat minimums ({str: 5, slots: 7}), checked before folding so a shop's better copy isn't hidden
+  // behind a worse one at the same price. The same rule as statsOk in util.js (this world can't load util.js).
+  const statsOk = (st, min) => !min || Object.entries(min).every(([k, v]) =>
+    (k === 'slots' ? (st && st.slots != null ? st.slots : -1) : (st && st[k]) || 0) >= v);
+
   async function listings(items) {
     const L = await waitLive();
     const out = {};
-    for (const { id, max } of items) {
+    for (const { id, max, min } of items) {
       try {
         const d = await L.browse({ item: id, pmax: Math.floor(max), sort: 'listed', dir: 'desc' });
         const rows = (d.rows || [])
@@ -48,10 +53,11 @@
             const per = r.per || 1;
             return {
               store: r.s && r.s.id, slot: r.slot, price: r.price, per, bundles: r.bundles || 1, unit: r.price / per,
-              ch: r.ch, r: r.r, owner: (r.s && r.s.owner) || null, seenAt: (r.s && r.s.seenAt) || null, listed: r.listed || null
+              ch: r.ch, r: r.r, owner: (r.s && r.s.owner) || null, seenAt: (r.s && r.s.seenAt) || null, listed: r.listed || null,
+              stats: r.stats || null
             };
           })
-          .filter(r => r.unit <= max)
+          .filter(r => r.unit <= max && statsOk(r.stats, min))
           .sort((a, b) => (b.listed || 0) - (a.listed || 0));
         // one row per shop and price: a shop selling several stacks at the same price is one offer, as the site
         // folds them (stacks: how many, qty: how many items in all; the newest stack's listed time)

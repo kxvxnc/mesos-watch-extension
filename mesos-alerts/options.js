@@ -73,6 +73,7 @@ function renderList() {
     ctl.append(sw, lab, input, rm);
 
     li.append(name, price, meta, ctl);
+    if (isEquip(w.id)) li.append(statFilter(w));
 
     if (w.paused) meta.append(el('div', null, 'Paused: no alerts until you turn it back on. Its target is kept.'));
 
@@ -83,8 +84,9 @@ function renderList() {
       const open = expanded.has(w.id);
       for (const r of x.hits.slice(0, open ? x.hits.length : 5)) {
         const row = el('li');
-        row.append(el('b', null, priceOf(r)), el('span', null, placeOf(r)), el('i', null, r.listed ? agoS(r.listed) : ''));
-        row.title = priceTitle(r);
+        const st = statsText(r.stats);
+        row.append(el('b', null, priceOf(r)), el('span', null, (st ? st + ' · ' : '') + placeOf(r)), el('i', null, r.listed ? agoS(r.listed) : ''));
+        row.title = priceTitle(r) + (st ? '\n' + st : '');
         ul.append(row);
       }
       if (x.hitCount > 5) {
@@ -98,6 +100,49 @@ function renderList() {
     }
     list.append(li);
   }
+}
+
+// an equip's stat minimums: chips you can remove, and a stat + number to add one
+function statFilter(w) {
+  const box = el('div', 'statf');
+  const min = w.minStats || {};
+  const setMin = fn => setWatch(list => list.map(o => {
+    if (o.id !== w.id) return o;
+    const m = fn({ ...(o.minStats || {}) });
+    const { minStats, ...rest } = o;
+    return Object.keys(m).length ? { ...rest, minStats: m } : rest;
+  }));
+  box.append(el('span', 'lab', hasMinStats(min) ? 'Only alert with' : 'Any stats'));
+  for (const [k, l] of MWA_STATS) {
+    if (min[k] == null) continue;
+    const chip = el('span', 'chip', `${l} ≥ ${min[k]}`);
+    const x = el('button', 'icon', '×');
+    x.title = `Remove the ${l} minimum`;
+    x.addEventListener('click', () => setMin(m => { delete m[k]; return m; }));
+    chip.append(x);
+    box.append(chip);
+  }
+  const sel = el('select');
+  sel.title = 'Stat';
+  for (const [k, l] of MWA_STATS) if (min[k] == null) { const o = el('option', null, l); o.value = k; sel.append(o); }
+  if (!sel.options.length) return box; // every stat has a minimum already
+  const val = el('input');
+  val.type = 'text';
+  val.inputMode = 'numeric';
+  val.placeholder = 'min';
+  val.title = 'Only listings with at least this much of the stat alert';
+  const add = el('button', 'ghost', 'Add');
+  const doAdd = () => {
+    const v = Number(val.value.trim());
+    if (!val.value.trim() || !Number.isInteger(v) || v < 0 || v > 99999) { val.classList.add('err'); val.focus(); return; }
+    const k = sel.value;
+    val.blur(); // let the list redraw (it holds off while a box has focus)
+    setMin(m => ({ ...m, [k]: v }));
+  };
+  add.addEventListener('click', doAdd);
+  val.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
+  box.append(sel, val, add);
+  return box;
 }
 
 // change the watchlist from what's stored now (the background may have just filled in a name)
@@ -386,9 +431,9 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   await load();
   // don't redraw under someone typing a target; it redraws on the next update.
-  // Only a text box counts: a clicked button or switch also takes focus, and that must still redraw.
+  // Only a text box or a stat picker counts: a clicked button or switch also takes focus, and that must still redraw.
   const a = document.activeElement;
-  const editing = a && a.matches('input[type=text]') && $('list').contains(a);
+  const editing = a && a.matches('input[type=text], select') && $('list').contains(a);
   if ((changes.latest || changes.watch) && !editing) renderList();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
   if (changes.history || changes.settings) renderSettings();

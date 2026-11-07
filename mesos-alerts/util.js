@@ -57,3 +57,29 @@ function isUnder(x, target, dealPct) {
   const max = alertMax(target, x.typical, dealPct);
   return max > 0 && x.cheapest <= max;
 }
+
+// Equip stats, in the site's order. A listing's stats look like {str: 5, watk: 2, slots: 7}; a missing stat is 0,
+// missing slots is unknown. A watched equip's minStats ({str: 5, slots: 7}) are minimums every alert must meet.
+const MWA_STATS = [['watk', 'W.ATK'], ['matk', 'M.ATK'], ['str', 'STR'], ['dex', 'DEX'], ['int', 'INT'], ['luk', 'LUK'],
+  ['crit_rate', 'Crit rate'], ['crit_damage', 'Crit dmg'], ['acc', 'Accuracy'], ['avoid', 'Avoid'], ['speed', 'Speed'],
+  ['jump', 'Jump'], ['hp', 'HP'], ['mp', 'MP'], ['wdef', 'W.DEF'], ['mdef', 'M.DEF'], ['slots', 'Slots']];
+const MWA_STAT_LABEL = Object.fromEntries(MWA_STATS);
+const isEquip = id => !mayBundle(id);
+const hasMinStats = m => !!m && Object.keys(m).length > 0;
+
+// the same rule as page.js uses while reading listings
+function statsOk(st, min) {
+  if (!hasMinStats(min)) return true;
+  return Object.entries(min).every(([k, v]) => (k === 'slots' ? (st && st.slots != null ? st.slots : -1) : (st && st[k]) || 0) >= v);
+}
+// {str: 5, watk: 2, slots: 7} -> "STR 5 · W.ATK 2 · 7 slots" (non-zero stats only)
+function statsText(st) {
+  if (!st) return '';
+  const parts = MWA_STATS.filter(([k]) => k !== 'slots' && st[k]).map(([k, l]) => `${l} ${st[k]}`);
+  if (st.slots != null) parts.push(`${st.slots} slot${st.slots === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+// {str: 5, slots: 7} -> "STR ≥ 5 · Slots ≥ 7"
+const minStatsText = m => MWA_STATS.filter(([k]) => m && m[k] != null).map(([k, l]) => `${l} ≥ ${m[k]}`).join(' · ');
+// a stable string for a filter, so changing it re-notes what's already listed ('' = none)
+const minStatsSig = m => (hasMinStats(m) ? MWA_STATS.filter(([k]) => m[k] != null).map(([k]) => `${k}${m[k]}`).join(',') : '');

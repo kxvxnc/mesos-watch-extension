@@ -81,14 +81,15 @@ async function onResult(data, hits) {
       hitsError = (rows && rows.error) || 'Could not read the listings';
       st.errors = addError(st.errors, { source: 'listings', item: name, itemId: w.id, ...((rows && rows.detail) || { message: hitsError }) });
       hitsAt = prevItem ? prevItem.hitsAt || null : null;
-      rows = ((prevItem && prevItem.hits) || []).filter(r => r.unit <= max);
+      rows = ((prevItem && prevItem.hits) || []).filter(r => r.unit <= max && statsOk(r.stats, w.minStats));
     } else {
       rows = (rows || []).filter(r => r.unit <= max);
-      // Alert only on listings that show up after the item was added or its target (or the deal %) last changed:
-      // the first check after that just notes what's already up, silently.
+      // Alert only on listings that show up after the item was added or its target, stat filter or the deal % last
+      // changed: the first check after that just notes what's already up, silently.
       // An offer is a shop + price; it alerts when it first shows up, and again when that shop lists a newer stack at
       // that price (a restock). seen[offer] = {t: last seen, listed: its newest stack's listed time}.
-      const cfg = `${w.target}|${settings.dealPct}`;
+      const sig = minStatsSig(w.minStats);
+      const cfg = `${w.target}|${settings.dealPct}` + (sig ? `|${sig}` : ''); // no filter: same as before filters existed
       const prev = st.alerted[w.id];
       const base = prev && prev.cfg === cfg && prev.seen ? prev : null;
       const seen = base ? { ...base.seen } : {};
@@ -125,7 +126,7 @@ async function onResult(data, hits) {
     const fresh = alerts.map(a => ({
       key: `${a.id}|${listingKey(a.r)}`, at: now, id: a.id, name: a.name,
       unit: a.r.unit, price: a.r.price, per: a.r.per, stacks: a.r.stacks || 1,
-      ch: a.r.ch, r: a.r.r, owner: a.r.owner, listed: a.r.listed, why: alertWhy(a, settings.dealPct),
+      ch: a.r.ch, r: a.r.r, owner: a.r.owner, listed: a.r.listed, stats: a.r.stats || null, why: alertWhy(a, settings.dealPct),
       tag: a.target > 0 && a.r.unit <= a.target ? `≤ ${fmtMesos(a.target)}` : `${settings.dealPct}% under typical`
     }));
     const keys = new Set(fresh.map(e => e.key));
@@ -212,7 +213,8 @@ function notify(alerts, dealPct) {
   for (const a of alerts.slice(0, 3)) {
     const bundle = (a.r.per > 1 ? `${a.r.per} for ${fmtMesos(a.r.price)} · ` : '') + (a.r.stacks > 1 ? `${a.r.stacks} stacks · ` : '');
     const when = a.r.listed ? ` · listed ${agoS(a.r.listed)}` : '';
-    create({ title: `${a.name}: ${each(a.r)}`, message: `${bundle}${place(a.r)}\n${alertWhy(a, dealPct)}${when}` });
+    const st = statsText(a.r.stats);
+    create({ title: `${a.name}: ${each(a.r)}`, message: `${st ? st + '\n' : ''}${bundle}${place(a.r)}\n${alertWhy(a, dealPct)}${when}` });
   }
   const rest = alerts.slice(3);
   if (rest.length) {
@@ -228,10 +230,11 @@ function notify(alerts, dealPct) {
 function webhookEmbed(a, dealPct) {
   const r = a.r;
   const bundle = (r.per > 1 ? `${r.per} for ${fmtMesos(r.price)} · ` : '') + (r.stacks > 1 ? `${r.stacks} stacks · ` : '');
+  const st = statsText(r.stats);
   return {
     title: `${a.name}: ${fmtMesos(r.unit)}${r.per > 1 ? ' each' : ''}`,
     url: `${MWA_SITE}#item=${a.id}`,
-    description: `${bundle}**Ch ${r.ch} · Room ${r.r}**${r.owner ? ' · ' + r.owner : ''}\n${alertWhy(a, dealPct)}`,
+    description: `${st ? st + '\n' : ''}${bundle}**Ch ${r.ch} · Room ${r.r}**${r.owner ? ' · ' + r.owner : ''}\n${alertWhy(a, dealPct)}`,
     color: 0x2fbf71,
     timestamp: new Date(r.listed ? r.listed * 1000 : Date.now()).toISOString(),
     footer: { text: r.listed ? 'Listed' : 'Seen' }
