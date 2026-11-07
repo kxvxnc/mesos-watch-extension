@@ -189,6 +189,47 @@ $('deal').addEventListener('change', () => {
 });
 $('notify').addEventListener('change', () => { state.settings.notify = $('notify').checked; saveSettings(); });
 
+/* ---------- Discord webhook ---------- */
+let webhookNote = null; // a message from Save/Test, shown until the next storage update
+async function renderWebhook() {
+  const { webhookStatus: ws } = await chrome.storage.local.get('webhookStatus');
+  const info = $('webhookInfo'), on = isWebhookUrl(state.settings.webhook);
+  if (document.activeElement !== $('webhook')) $('webhook').value = state.settings.webhook || '';
+  $('webhookTest').disabled = !on;
+  info.className = 'hint';
+  if (webhookNote) { info.textContent = webhookNote.text; info.classList.add(webhookNote.ok ? 'ok' : 'bad'); return; }
+  if (!on) { info.textContent = 'Off.'; return; }
+  if (ws && !ws.ok) { info.textContent = `Last post failed ${ago(Date.now() - ws.at)}: ${ws.error}`; info.classList.add('bad'); return; }
+  info.textContent = 'On: new alerts are posted to this webhook.' + (ws && ws.ok ? ` Last posted ${ago(Date.now() - ws.at)}.` : '');
+}
+const note = (text, ok) => { webhookNote = { text, ok }; renderWebhook(); setTimeout(() => { webhookNote = null; renderWebhook(); }, 8000); };
+
+$('webhookSave').addEventListener('click', async () => {
+  const url = $('webhook').value.trim();
+  if (!url) {
+    state.settings.webhook = '';
+    await saveSettings();
+    chrome.permissions.remove({ origins: MWA_WEBHOOK_ORIGINS }).catch(() => {});
+    return note('Discord alerts turned off.', true);
+  }
+  if (!isWebhookUrl(url)) { $('webhook').classList.add('err'); return note('That isn\'t a Discord webhook URL. It looks like https://discord.com/api/webhooks/123…/abc…', false); }
+  $('webhook').classList.remove('err');
+  // Chrome asks once whether the extension may post to Discord
+  const granted = await chrome.permissions.request({ origins: MWA_WEBHOOK_ORIGINS }).catch(() => false);
+  if (!granted) return note('Chrome permission to post to Discord is needed. Click Save again and allow it.', false);
+  state.settings.webhook = url;
+  await saveSettings();
+  note('Saved. Use "Send test" to check it posts.', true);
+});
+$('webhook').addEventListener('keydown', e => { if (e.key === 'Enter') $('webhookSave').click(); });
+
+$('webhookTest').addEventListener('click', async () => {
+  $('webhookTest').disabled = true;
+  const r = await chrome.runtime.sendMessage({ type: 'testWebhook', url: state.settings.webhook });
+  $('webhookTest').disabled = false;
+  note(r && r.ok ? 'Test sent: check the Discord channel.' : `Test failed: ${(r && r.error) || 'no answer'}`, !!(r && r.ok));
+});
+
 $('export').addEventListener('click', () => {
   const head = ['time', 'item_id', 'item', 'cheapest', 'typical', 'listings', 'channel', 'room', 'owner'];
   const q = v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
@@ -214,6 +255,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if ((changes.latest || changes.watch) && !editing) renderList();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
   if (changes.history || changes.settings) renderSettings();
+  if (changes.settings || changes.webhookStatus) renderWebhook();
 });
 setInterval(() => renderStatus(state), 5000);
 wireHeader(() => state, false);
@@ -222,6 +264,7 @@ wireHeader(() => state, false);
   await load();
   renderList();
   renderSettings();
+  renderWebhook();
   renderStatus(state);
   $('search').focus();
 })();

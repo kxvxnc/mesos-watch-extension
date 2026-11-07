@@ -1,5 +1,10 @@
 // Shared by background.js (importScripts) and popup.js (<script>).
-const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true };
+const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true, webhook: '' };
+
+// a Discord channel webhook: https://discord.com/api/webhooks/<id>/<token> (also discordapp.com, canary., ptb.)
+const MWA_WEBHOOK_ORIGINS = ['https://discord.com/api/webhooks/*', 'https://discordapp.com/api/webhooks/*',
+  'https://canary.discord.com/api/webhooks/*', 'https://ptb.discord.com/api/webhooks/*'];
+const isWebhookUrl = s => /^https:\/\/((canary|ptb)\.)?discord(app)?\.com\/api\/webhooks\/\d+\/[\w-]+\/?$/.test(String(s || '').trim());
 const MWA_HISTORY_CAP = 20000;
 const MWA_INBOX_CAP = 200;
 

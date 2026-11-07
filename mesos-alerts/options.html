@@ -48,6 +48,18 @@
     </section>
 
     <section class="card">
+      <h2>Discord <span class="count">(optional)</span></h2>
+      <p class="hint">Also post each new alert to a Discord channel. In Discord: channel settings → Integrations → Webhooks →
+        New Webhook → Copy Webhook URL, then paste it here. Anyone with the URL can post to that channel, so keep it private.</p>
+      <div class="row">
+        <input id="webhook" class="wide" type="text" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false">
+        <button id="webhookSave">Save</button>
+        <button id="webhookTest" class="ghost">Send test</button>
+      </div>
+      <p class="hint" id="webhookInfo"></p>
+    </section>
+
+    <section class="card">
       <h2>Price log</h2>
       <p class="hint" id="logInfo"></p>
       <div class="row">

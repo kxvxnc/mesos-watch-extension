@@ -111,6 +111,9 @@ async function onResult(data, hits) {
   await chrome.storage.local.set(save);
 
   if (settings.notify) notify(alerts, settings.dealPct);
+  if (alerts.length && isWebhookUrl(settings.webhook)) {
+    postWebhook(settings.webhook, alerts.map(a => webhookEmbed(a, settings.dealPct))).catch(() => {});
+  }
 }
 
 async function onError(error) {
@@ -183,6 +186,59 @@ function notify(alerts, dealPct) {
   }
 }
 
+/* ---------- Discord webhook (optional) ---------- */
+// one card per alert; its title links to the item on mesos.watch (the site opens #item=<id> links)
+function webhookEmbed(a, dealPct) {
+  const r = a.r;
+  const bundle = (r.per > 1 ? `${r.per} for ${fmtMesos(r.price)} · ` : '') + (r.stacks > 1 ? `${r.stacks} stacks · ` : '');
+  return {
+    title: `${a.name}: ${fmtMesos(r.unit)}${r.per > 1 ? ' each' : ''}`,
+    url: `${MWA_SITE}#item=${a.id}`,
+    description: `${bundle}**Ch ${r.ch} · Room ${r.r}**${r.owner ? ' · ' + r.owner : ''}\n${alertWhy(a, dealPct)}`,
+    color: 0x2fbf71,
+    timestamp: new Date(r.listed ? r.listed * 1000 : Date.now()).toISOString(),
+    footer: { text: r.listed ? 'Listed' : 'Seen' }
+  };
+}
+
+// Discord takes up to 10 cards a message, and about 5 messages per 2 seconds per webhook: send in tens, a short
+// pause between, and wait once if Discord says to slow down. The outcome is kept for the settings page.
+async function postWebhook(url, embeds, content) {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let error = null;
+  try {
+    for (let i = 0; i < Math.max(1, embeds.length) && i < 50; i += 10) {
+      const body = JSON.stringify({ username: 'Mesos Watch Alerts', content: i === 0 ? content : undefined, embeds: embeds.slice(i, i + 10) });
+      const send = () => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      let res = await send();
+      if (res.status === 429) {
+        const j = await res.json().catch(() => ({}));
+        await sleep(Math.min(10, Number(j.retry_after) || 2) * 1000);
+        res = await send();
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(`Discord answered ${res.status}${j.message ? ': ' + j.message : ''}`);
+      }
+      if (i + 10 < embeds.length) await sleep(500);
+    }
+    if (embeds.length > 50) await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'Mesos Watch Alerts', content: `…and ${embeds.length - 50} more. Open the extension for the rest.` }) });
+  } catch (err) {
+    error = String((err && err.message) || err);
+    if (/Failed to fetch/i.test(error)) error = 'Could not reach Discord (no permission, or offline)';
+  }
+  await chrome.storage.local.set({ webhookStatus: { at: Date.now(), ok: !error, error } });
+  return { ok: !error, error };
+}
+
+const testWebhook = url => postWebhook(url, [{
+  title: 'Test alert: Red Potion: 140',
+  url: MWA_SITE,
+  description: '**Ch 18 · Room 9** · SomeSeller\nThis is a test from Mesos Watch Alerts. Real alerts look like this.',
+  color: 0x2fbf71,
+  timestamp: new Date().toISOString()
+}]);
+
 async function focusSite() {
   const tabs = await chrome.tabs.query({ url: 'https://mesos.watch/*' });
   if (tabs.length) {
@@ -203,6 +259,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'dismiss') return reply(serial(() => dismiss(msg.key, msg.at)));
   if (msg.type === 'clearInbox') return reply(serial(clearInbox));
   if (msg.type === 'focusSite') return reply(focusSite());
+  if (msg.type === 'testWebhook') return reply(isWebhookUrl(msg.url) ? testWebhook(msg.url.trim()) : Promise.resolve({ ok: false, error: 'Not a Discord webhook URL' }));
   return false;
 });
 

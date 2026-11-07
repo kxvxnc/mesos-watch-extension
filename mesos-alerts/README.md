@@ -19,6 +19,8 @@ You get an alert for each new listing at or under the target, as the price each.
 
 **Settings page:** your items and what's under target right now, check interval (30 s minimum, 60 s default), an optional "X% under typical price" alert for every item, notifications on/off, and a CSV export of the price log (one row each time an item's cheapest price changes).
 
+**Discord (optional):** paste a channel webhook URL on the settings page (Discord: channel settings > Integrations > Webhooks > New Webhook > Copy Webhook URL), click Save and allow Chrome to post to Discord, then "Send test". Each check with new alerts posts one message with a card per alert (up to 10 a message). Clear the field and Save to turn it off.
+
 ## How it works
 It runs inside your open mesos.watch tab and calls the site's own helpers, so requests go through the site's normal session, Turnstile check and renewal. Each check makes one summary request for up to 60 items. For items that may have a listing under the target, it also fetches all of that item's listings on every channel, and alerts once for each new listing at or under the target: price each, bundle size, channel, room and seller. With several mesos.watch tabs open, only one does the checking.
 
