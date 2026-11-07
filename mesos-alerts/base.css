@@ -1,5 +1,6 @@
 /* Shared by the popup and the settings page. */
 :root {
+  color-scheme: dark;
   --bg: #14161b; --panel: #1c1f26; --line: #2a2e38; --text: #e7e9ee; --muted: #8b92a3;
   --gold: #f2b544; --good: #2fbf71; --good-bg: rgba(47, 191, 113, .12); --warn: #e5a03a; --bad: #e5484d;
 }
@@ -18,14 +19,16 @@ input:focus { border-color: var(--gold); }
 
 header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px;
   border-bottom: 1px solid var(--line); }
-.title { display: flex; align-items: center; gap: 7px; font-weight: 600; }
-.status { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.title { display: flex; align-items: center; gap: 7px; font-weight: 600; white-space: nowrap; flex: none; }
+.status { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; min-width: 0; margin-left: 10px; }
+.status > * { flex: none; }
+#status { flex: 0 1 auto; min-width: 0; text-align: right; } /* wraps rather than squeezing the title */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.ok { background: var(--good); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
 
 .banner { padding: 8px 10px; border-radius: 8px; background: rgba(229, 160, 58, .12);
   border: 1px solid rgba(229, 160, 58, .35); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.banner span { font-size: 12px; }
+.banner span { font-size: 12px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .banner button { white-space: nowrap; }
 
 .empty { color: var(--muted); text-align: center; padding: 18px 24px; margin: 0; }

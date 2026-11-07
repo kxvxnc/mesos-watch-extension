@@ -1,4 +1,5 @@
-body { width: 380px; }
+body { width: 380px; max-height: 600px; display: flex; flex-direction: column; overflow: hidden; }
+header, .banner, .bar { flex: none; }
 .status .icon { padding: 0 4px; }
 #pause { display: inline-flex; align-items: center; height: 20px; }
 #pause svg { width: 12px; height: 12px; fill: currentColor; }
@@ -9,7 +10,7 @@ body { width: 380px; }
 .bar #count { font-weight: 600; }
 .bar button { padding: 2px 8px; font-size: 12px; }
 
-.alerts { list-style: none; margin: 0; padding: 0 12px 12px; max-height: 470px; overflow-y: auto; }
+.alerts { list-style: none; margin: 0; padding: 0 12px 12px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .alert { display: grid; grid-template-columns: 1fr auto auto; gap: 1px 8px; align-items: start; padding: 8px 6px 8px 10px;
   margin-bottom: 6px; background: var(--panel); border: 1px solid rgba(47, 191, 113, .45); border-radius: 8px; cursor: pointer; }
 .alert:hover { border-color: var(--good); }
