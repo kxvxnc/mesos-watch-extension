@@ -20,15 +20,25 @@
     setTimeout(() => { if (pending.delete(id)) rej({ message: 'The page took too long to answer.' }); }, timeout);
   });
 
-  // after the extension is reloaded, this old copy can't reach it any more: stop quietly
+  // After the extension is reloaded or updated, Chrome leaves this old copy running in the tab, cut off from it:
+  // every chrome.* call then throws "Extension context invalidated". Stop quietly at the first sign of it;
+  // the reloaded tab gets a fresh copy.
   let dead = false;
+  const alive = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch { return false; } };
+  const stop = () => { dead = true; clearInterval(timer); };
   const send = async msg => {
     if (dead) return undefined;
     try { return await chrome.runtime.sendMessage(msg); }
     catch (err) {
-      if (!chrome.runtime || !chrome.runtime.id) { dead = true; clearInterval(timer); }
+      if (!alive()) stop();
       return undefined;
     }
+  };
+  // storage, or null once cut off
+  const getStored = async keys => {
+    if (dead || !alive()) { stop(); return null; }
+    try { return await chrome.storage.local.get(keys); }
+    catch (err) { if (!alive()) { stop(); return null; } throw err; }
   };
 
   let ready = false, busy = false, timer = null;
@@ -37,7 +47,9 @@
     if (!ready || busy || dead) return;
     busy = true;
     try {
-      const { watch = [], settings = {} } = await chrome.storage.local.get(['watch', 'settings']);
+      const stored = await getStored(['watch', 'settings']);
+      if (!stored) return;
+      const { watch = [], settings = {} } = stored;
       if (!watch.length || settings.paused) return; // all alerts paused: no requests at all
       if (!(await send({ type: 'claim', force }))) return;
       try {
@@ -63,7 +75,9 @@
   }
 
   async function schedule() {
-    const { settings = {} } = await chrome.storage.local.get('settings');
+    const stored = await getStored('settings');
+    if (!stored) return;
+    const { settings = {} } = stored;
     const sec = Math.max(30, Number(settings.intervalSec) || DEFAULT_INTERVAL);
     clearInterval(timer);
     timer = setInterval(tick, sec * 1000);
