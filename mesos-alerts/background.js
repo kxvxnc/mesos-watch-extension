@@ -53,8 +53,9 @@ chrome.tabs.onRemoved.addListener(async tabId => {
 // a listing missing from a scan or two and back again isn't new: remember the ones seen for this long
 const SEEN_KEEP_MS = 6 * 3600 * 1000;
 
-// data: the summary per item; hits: the listings at or under the max per item (missing = none, null = that check failed)
-async function onResult(data, hits) {
+// data: the summary per item; hits: the listings at or under the max per item (missing = none, null = that check failed);
+// checked: each item the tab checked, with its alertCfg then (null: a tab from before this was sent, taken as current)
+async function onResult(data, hits, checked) {
   const st = await getState();
   const settings = settingsOf(st.settings);
   const now = Date.now();
@@ -68,6 +69,14 @@ async function onResult(data, hits) {
     const name = (x && x.name) || w.name || `Item ${w.id}`;
     const max = alertMax(w.target, x && x.typical, settings.dealPct);
     const prevItem = st.latest && st.latest.items && st.latest.items[w.id];
+    const cfg = alertCfg(w, settings.dealPct);
+    // This check ran before the item was added, or before its target, filter or the deal % changed, or it was resumed:
+    // what it read can't say which listings were already up. Keep what's known (or "waiting for the first check")
+    // until a check made with the current settings comes in.
+    if (checked && checked[w.id] !== cfg) {
+      if (prevItem) items[w.id] = { ...prevItem, name, paused: !!w.paused };
+      continue;
+    }
 
     let rows = hits[w.id];
     let hitsError = null, hitsAt = now;
@@ -88,8 +97,6 @@ async function onResult(data, hits) {
       // changed: the first check after that just notes what's already up, silently.
       // An offer is a shop + price; it alerts when it first shows up, and again when that shop lists a newer stack at
       // that price (a restock). seen[offer] = {t: last seen, listed: its newest stack's listed time}.
-      const sig = minStatsSig(w.minStats);
-      const cfg = `${w.target}|${settings.dealPct}` + (sig ? `|${sig}` : ''); // no filter: same as before filters existed
       const prev = st.alerted[w.id];
       const base = prev && prev.cfg === cfg && prev.seen ? prev : null;
       const seen = base ? { ...base.seen } : {};
@@ -285,7 +292,7 @@ chrome.notifications.onClicked.addListener(id => { chrome.notifications.clear(id
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = p => { p.then(r => sendResponse(r === undefined ? true : r), () => sendResponse(false)); return true; };
   if (msg.type === 'claim') return reply(claim(sender.tab ? sender.tab.id : -1, !!msg.force));
-  if (msg.type === 'result') return reply(serial(() => onResult(msg.data, msg.hits || {})));
+  if (msg.type === 'result') return reply(serial(() => onResult(msg.data, msg.hits || {}, msg.checked || null)));
   if (msg.type === 'error') return reply(serial(() => onError(msg.error)));
   if (msg.type === 'dismiss') return reply(serial(() => dismiss(msg.key, msg.at)));
   if (msg.type === 'clearInbox') return reply(serial(clearInbox));

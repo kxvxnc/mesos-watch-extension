@@ -82,3 +82,11 @@ function statsText(st) {
 const minStatsText = m => MWA_STATS.filter(([k]) => m && m[k] != null).map(([k, l]) => `${l} ≥ ${m[k]}`).join(' · ');
 // a stable string for a filter, so changing it re-notes what's already listed ('' = none)
 const minStatsSig = m => (hasMinStats(m) ? MWA_STATS.filter(([k]) => m[k] != null).map(([k]) => `${k}${m[k]}`).join(',') : '');
+// What a watched item's alerts depend on, as a string: its target, the deal % and its stat filter ('paused' while
+// paused). The tab sends it for each item it checked; a check made under another one (the item was added, changed or
+// resumed while it ran) can't say which listings were already up.
+function alertCfg(w, dealPct) {
+  if (w.paused) return 'paused';
+  const sig = minStatsSig(w.minStats);
+  return `${w.target}|${Number(dealPct) || 0}` + (sig ? `|${sig}` : ''); // no filter: same as before filters existed
+}

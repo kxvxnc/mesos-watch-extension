@@ -43,8 +43,12 @@
 
   let ready = false, busy = false, timer = null;
 
+  // a check asked for now (an item added, changed or resumed) while one is running: run it right after
+  let again = false;
+
   async function tick(force = false) {
-    if (!ready || busy || dead) return;
+    if (!ready || dead) return;
+    if (busy) { if (force) again = true; return; }
     busy = true;
     try {
       const stored = await getStored(['watch', 'settings']);
@@ -65,12 +69,14 @@
           if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max, min: hasMinStats(w.minStats) ? w.minStats : null });
         }
         const hits = need.length ? await ask('listings', { items: need }, 30000 + 15000 * need.length) : {};
-        await send({ type: 'result', data, hits });
+        const checked = Object.fromEntries(watch.map(w => [w.id, alertCfg(w, dealPct)]));
+        await send({ type: 'result', data, hits, checked });
       } catch (err) {
         await send({ type: 'error', error: err });
       }
     } finally {
       busy = false;
+      if (again && !dead) { again = false; tick(true); }
     }
   }
 
