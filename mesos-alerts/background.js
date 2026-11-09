@@ -123,7 +123,7 @@ async function onResult(data, hits, checked) {
     const fresh = alerts.map(a => ({
       key: `${a.id}|${listingKey(a.r)}`, at: now, id: a.id, name: a.name,
       unit: a.r.unit, price: a.r.price, per: a.r.per, stacks: a.r.stacks || 1,
-      ch: a.r.ch, r: a.r.r, owner: a.r.owner, listed: a.r.listed, stats: a.r.stats || null, why: alertWhy(a, settings.dealPct),
+      ch: a.r.ch, r: a.r.r, owner: a.r.owner, title: a.r.title || null, listed: a.r.listed, stats: a.r.stats || null, why: alertWhy(a, settings.dealPct),
       tag: a.target > 0 && a.r.unit <= a.target ? `≤ ${fmtMesos(a.target)}` : `${settings.dealPct}% under typical`
     }));
     const keys = new Set(fresh.map(e => e.key));
@@ -204,7 +204,7 @@ let noteSeq = 0;
 function notify(alerts, dealPct) {
   if (!alerts.length) return;
   const each = r => fmtMesos(r.unit) + (r.per > 1 ? ' each' : '');
-  const place = r => `Ch ${r.ch} · Room ${r.r}${r.owner ? ' · ' + r.owner : ''}`;
+  const place = r => `Ch ${r.ch} · Room ${r.r}${r.owner ? ' · ' + r.owner : ''}${r.title ? ` · “${r.title}”` : ''}`;
   const create = opts => chrome.notifications.create(`mwa:${Date.now()}:${++noteSeq}`, { type: 'basic', iconUrl: 'icons/128.png', priority: 2, ...opts });
 
   for (const a of alerts.slice(0, 3)) {
@@ -228,10 +228,12 @@ function webhookEmbed(a, dealPct) {
   const r = a.r;
   const bundle = (r.per > 1 ? `${r.per} for ${fmtMesos(r.price)} · ` : '') + (r.stacks > 1 ? `${r.stacks} stacks · ` : '');
   const st = statsText(r.stats);
+  // the shop's title is typed by its owner: escape Discord markdown so it shows as written
+  const shop = r.title ? ` · “${String(r.title).replace(/[\\*_~`|>]/g, '\\$&')}”` : '';
   return {
     title: `${a.name}: ${fmtMesos(r.unit)}${r.per > 1 ? ' each' : ''}`,
     url: `${MWA_SITE}#item=${a.id}`,
-    description: `${st ? st + '\n' : ''}${bundle}**Ch ${r.ch} · Room ${r.r}**${r.owner ? ' · ' + r.owner : ''}\n${alertWhy(a, dealPct)}`,
+    description: `${st ? st + '\n' : ''}${bundle}**Ch ${r.ch} · Room ${r.r}**${r.owner ? ' · ' + r.owner : ''}${shop}\n${alertWhy(a, dealPct)}`,
     color: 0x2fbf71,
     timestamp: new Date(r.listed ? r.listed * 1000 : Date.now()).toISOString(),
     footer: { text: r.listed ? 'Listed' : 'Seen' }
@@ -272,7 +274,7 @@ async function postWebhook(url, embeds, content) {
 const testWebhook = url => postWebhook(url, [{
   title: 'Test alert: Red Potion: 140',
   url: MWA_SITE,
-  description: '**Ch 18 · Room 9** · SomeSeller\nThis is a test from Mesos Watch Alerts. Real alerts look like this.',
+  description: '**Ch 18 · Room 9** · SomeSeller · “Cheap pots!”\nThis is a test from Mesos Watch Alerts. Real alerts look like this.',
   color: 0x2fbf71,
   timestamp: new Date().toISOString()
 }]);

@@ -53,7 +53,7 @@
             const per = r.per || 1;
             return {
               store: r.s && r.s.id, slot: r.slot, price: r.price, per, bundles: r.bundles || 1, unit: r.price / per,
-              ch: r.ch, r: r.r, owner: (r.s && r.s.owner) || null, seenAt: (r.s && r.s.seenAt) || null, listed: r.listed || null,
+              ch: r.ch, r: r.r, owner: (r.s && r.s.owner) || null, title: (r.s && r.s.title) || null, seenAt: (r.s && r.s.seenAt) || null, listed: r.listed || null,
               stats: r.stats || null
             };
           })
