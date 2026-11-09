@@ -1,7 +1,7 @@
 importScripts('util.js');
 
 const getState = () => chrome.storage.local.get({
-  watch: [], settings: MWA_DEFAULTS, latest: null, alerted: {}, history: [], inbox: [], errors: []
+  watch: [], settings: MWA_DEFAULTS, latest: null, alerted: {}, inbox: [], errors: []
 });
 const settingsOf = s => ({ ...MWA_DEFAULTS, ...(s || {}) });
 
@@ -108,18 +108,8 @@ async function onResult(data, hits) {
       ? { ...x, name, paused: !!w.paused, under: rows.length > 0, hits: rows.slice(0, 200), hitCount: rows.length, hitsError, hitsAt }
       : { name, paused: !!w.paused, cheapest: null, listings: 0, under: false, hits: [], hitCount: 0, hitsError, hitsAt };
 
-    // history: one row whenever an item's cheapest price changes
-    const prevCheapest = prevItem ? prevItem.cheapest : undefined;
-    const cheapest = x ? x.cheapest : null;
-    if (prevCheapest === undefined || prevCheapest !== cheapest) {
-      st.history.push([
-        now, w.id, name, cheapest ?? '', x && x.typical != null ? x.typical : '', x ? x.listings ?? 0 : 0,
-        x && x.where ? x.where.ch : '', x && x.where ? x.where.r : '', x && x.where ? x.where.owner : ''
-      ]);
-    }
   }
   for (const id in st.alerted) if (!st.watch.some(w => String(w.id) === id)) delete st.alerted[id]; // removed items
-  if (st.history.length > MWA_HISTORY_CAP) st.history.splice(0, st.history.length - MWA_HISTORY_CAP);
 
   // new alerts go on top of the inbox; the same offer alerting again replaces its old entry
   if (alerts.length) {
@@ -133,13 +123,13 @@ async function onResult(data, hits) {
     st.inbox = fresh.concat(st.inbox.filter(e => !keys.has(e.key))).slice(0, MWA_INBOX_CAP);
   }
 
-  const save = { latest: { at: now, items, error: null }, alerted: st.alerted, history: st.history, inbox: st.inbox, errors: st.errors };
+  const save = { latest: { at: now, items, error: null }, alerted: st.alerted, inbox: st.inbox, errors: st.errors };
   // only the names change here: anything else in the watchlist (a target typed meanwhile) is left as it is
   if (Object.keys(names).length) save.watch = st.watch.map(w => (names[w.id] ? { ...w, name: names[w.id] } : w));
   await chrome.storage.local.set(save);
 
   if (settings.notify) notify(alerts, settings.dealPct);
-  if (alerts.length && isWebhookUrl(settings.webhook)) {
+  if (alerts.length && settings.discordOn && isWebhookUrl(settings.webhook)) {
     postWebhook(settings.webhook, alerts.map(a => webhookEmbed(a, settings.dealPct))).catch(() => {});
   }
 }
@@ -307,3 +297,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 updateBadge();
+chrome.storage.local.remove('history'); // the price log this extension used to keep (up to ~2 MB)

@@ -1,9 +1,9 @@
-// The settings page (opens in its own tab): add items, set targets, see what's under them now, settings, the price log.
-let state = { watch: [], settings: { ...MWA_DEFAULTS }, latest: null, history: [] };
+// The settings page (opens in its own tab): add items, set targets, see what's under them now, settings.
+let state = { watch: [], settings: { ...MWA_DEFAULTS }, latest: null };
 const expanded = new Set(); // items whose full list of offers is open
 
 async function load() {
-  const s = await chrome.storage.local.get({ watch: [], settings: MWA_DEFAULTS, latest: null, history: [] });
+  const s = await chrome.storage.local.get({ watch: [], settings: MWA_DEFAULTS, latest: null });
   state = { ...s, settings: { ...MWA_DEFAULTS, ...s.settings } };
 }
 const saveSettings = () => chrome.storage.local.set({ settings: state.settings });
@@ -226,7 +226,7 @@ $('search').addEventListener('keydown', e => {
 });
 $('search').addEventListener('blur', () => setTimeout(hideResults, 100));
 
-/* ---------- settings & export ---------- */
+/* ---------- settings ---------- */
 function renderPause() {
   const paused = !!state.settings.paused;
   $('allOn').checked = !paused;
@@ -239,10 +239,6 @@ function renderSettings() {
   $('interval').value = state.settings.intervalSec;
   $('deal').value = state.settings.dealPct;
   $('notify').checked = state.settings.notify;
-  const n = state.history.length;
-  $('logInfo').textContent = n
-    ? `${n.toLocaleString('en-US')} price change${n > 1 ? 's' : ''} logged since ${new Date(state.history[0][0]).toLocaleString()}. One row each time an item's cheapest price changes.`
-    : 'The log fills as prices change: one row each time an item\'s cheapest price changes.';
 }
 $('interval').addEventListener('change', () => {
   state.settings.intervalSec = Math.max(30, Math.round(Number($('interval').value) || 60));
@@ -267,8 +263,17 @@ const errText = e => [
   e.name ? `type: ${e.name}` : ''
 ].filter(Boolean).join('\n');
 
+// The log starts closed and stays the way you leave it (this browser only). A new error while the page is open opens it.
+const ERR_OPEN_KEY = 'mwa-errlog-open';
+try { $('errLog').open = localStorage.getItem(ERR_OPEN_KEY) === '1'; } catch { /* storage blocked: start closed */ }
+$('errLog').addEventListener('toggle', () => { try { localStorage.setItem(ERR_OPEN_KEY, $('errLog').open ? '1' : '0'); } catch {} });
+let errNewest = null; // the newest error's time at the last render (null = not rendered yet)
+
 async function renderErrors() {
   const { errors = [] } = await chrome.storage.local.get('errors');
+  const newest = errors.length ? errors[0].lastAt || errors[0].at || 0 : 0;
+  if (errNewest !== null && newest > errNewest) $('errLog').open = true;
+  errNewest = newest;
   const ul = $('errors');
   ul.textContent = '';
   $('errCount').textContent = errors.length ? `(${errors.length})` : '';
@@ -300,10 +305,14 @@ async function renderWebhook() {
   const { webhookStatus: ws } = await chrome.storage.local.get('webhookStatus');
   const info = $('webhookInfo'), on = isWebhookUrl(state.settings.webhook);
   if (document.activeElement !== $('webhook')) $('webhook').value = state.settings.webhook || '';
+  const posting = state.settings.discordOn !== false;
+  $('discordOn').checked = posting;
+  $('discordOnText').textContent = posting ? 'On' : 'Off';
   $('webhookTest').disabled = !on;
   info.className = 'hint';
   if (webhookNote) { info.textContent = webhookNote.text; info.classList.add(webhookNote.ok ? 'ok' : 'bad'); return; }
-  if (!on) { info.textContent = 'Off.'; return; }
+  if (!on) { info.textContent = 'Off: no webhook saved.'; return; }
+  if (!posting) { info.textContent = 'Off: new alerts aren\'t posted. Your webhook is still saved.'; return; }
   if (ws && !ws.ok) { info.textContent = `Last post failed ${ago(Date.now() - ws.at)}: ${ws.error}`; info.classList.add('bad'); return; }
   info.textContent = 'On: new alerts are posted to this webhook.' + (ws && ws.ok ? ` Last posted ${ago(Date.now() - ws.at)}.` : '');
 }
@@ -327,6 +336,7 @@ $('webhookSave').addEventListener('click', async () => {
   note('Saved. Use "Send test" to check it posts.', true);
 });
 $('webhook').addEventListener('keydown', e => { if (e.key === 'Enter') $('webhookSave').click(); });
+$('discordOn').addEventListener('change', () => { state.settings.discordOn = $('discordOn').checked; renderWebhook(); saveSettings(); });
 
 $('webhookTest').addEventListener('click', async () => {
   $('webhookTest').disabled = true;
@@ -335,21 +345,6 @@ $('webhookTest').addEventListener('click', async () => {
   note(r && r.ok ? 'Test sent: check the Discord channel.' : `Test failed: ${(r && r.error) || 'no answer'}`, !!(r && r.ok));
 });
 
-$('export').addEventListener('click', () => {
-  const head = ['time', 'item_id', 'item', 'cheapest', 'typical', 'listings', 'channel', 'room', 'owner'];
-  const q = v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
-  const lines = [head.join(',')].concat(state.history.map(r => [new Date(r[0]).toISOString(), ...r.slice(1)].map(q).join(',')));
-  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
-  const a = el('a');
-  a.href = url;
-  a.download = `mesos-prices-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-});
-$('clearLog').addEventListener('click', async () => {
-  if (!confirm('Clear the whole price log?')) return;
-  await chrome.storage.local.set({ history: [] });
-});
 
 /* ---------- share: export / import the watchlist ---------- */
 const flash = (btn, text) => { const t = btn.textContent; btn.textContent = text; setTimeout(() => { btn.textContent = t; }, 1500); };
@@ -436,7 +431,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   const editing = a && a.matches('input[type=text], select') && $('list').contains(a);
   if ((changes.latest || changes.watch) && !editing) renderList();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
-  if (changes.history || changes.settings) renderSettings();
+  if (changes.settings) renderSettings();
   if (changes.settings) renderPause();
   if (changes.settings || changes.webhookStatus) renderWebhook();
   if (changes.errors) renderErrors();

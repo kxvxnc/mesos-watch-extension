@@ -46,7 +46,7 @@
     <section class="card">
       <h2>Share your list</h2>
       <p class="hint">Copy or save your items and targets to move them to another computer or give them to another player.
-        Only items, targets and stat filters are included: not your Discord webhook, alerts or price log.</p>
+        Only items, targets and stat filters are included: not your Discord webhook or alerts.</p>
       <div class="row">
         <button id="shareCopy">Copy list</button>
         <button id="shareDownload" class="ghost">Download file</button>
@@ -71,10 +71,12 @@
         <span class="hint">(0 = off, applies to every item)</span></label>
       <label class="check"><input id="notify" type="checkbox"> Desktop notifications
         <span class="hint">(alerts still collect in the popup when off)</span></label>
-    </section>
 
-    <section class="card">
-      <h2>Discord <span class="count">(optional)</span></h2>
+      <div class="cardhead sub">
+        <h3>Discord <span class="count">(optional)</span></h3>
+        <label class="switch" title="Turn Discord posts off or on. Your webhook is kept either way.">
+          <input id="discordOn" type="checkbox"><span class="slider"></span><span id="discordOnText">On</span></label>
+      </div>
       <p class="hint">Also post each new alert to a Discord channel. In Discord: channel settings → Integrations → Webhooks →
         New Webhook → Copy Webhook URL, then paste it here. Anyone with the URL can post to that channel, so keep it private.</p>
       <div class="row">
@@ -86,23 +88,17 @@
     </section>
 
     <section class="card">
-      <h2>Error log <span id="errCount" class="count"></span></h2>
-      <p class="hint">Everything that failed, newest first, with the full message. A repeating error is one row with a count.</p>
-      <ul id="errors" class="errors"></ul>
-      <div class="row">
-        <button id="copyErrors">Copy all</button>
-        <button id="clearErrors" class="ghost">Clear</button>
-      </div>
+      <details id="errLog" class="fold">
+        <summary><h2>Error log <span id="errCount" class="count"></span></h2></summary>
+        <p class="hint">Everything that failed, newest first, with the full message. A repeating error is one row with a count.</p>
+        <ul id="errors" class="errors"></ul>
+        <div class="row">
+          <button id="copyErrors">Copy all</button>
+          <button id="clearErrors" class="ghost">Clear</button>
+        </div>
+      </details>
     </section>
 
-    <section class="card">
-      <h2>Price log</h2>
-      <p class="hint" id="logInfo"></p>
-      <div class="row">
-        <button id="export">Export as CSV</button>
-        <button id="clearLog" class="ghost">Clear log</button>
-      </div>
-    </section>
   </main>
 
 <script src="util.js"></script>

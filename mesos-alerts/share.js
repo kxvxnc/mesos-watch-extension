@@ -1,6 +1,6 @@
 // Watchlist export/import (settings page). The format is JSON, so it can be pasted in Discord or saved as a file:
 // {"app":"mesos-watch-alerts","v":1,"items":[{"id":1302000,"name":"Item","target":500000,"minStats":{"watk":20},"paused":true}]}
-// Only items, targets and stat filters travel: never the Discord webhook, alerts or price log.
+// Only items, targets and stat filters travel: never the Discord webhook or alerts.
 const SHARE_APP = 'mesos-watch-alerts';
 
 function exportWatch(watch) {
