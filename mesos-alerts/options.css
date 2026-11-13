@@ -39,6 +39,7 @@ header label.switch { display: inline-flex; align-items: center; gap: 7px; margi
   background: var(--muted); transition: transform .15s, background .15s; }
 .switch input:checked + .slider { background: rgba(47, 191, 113, .45); }
 .switch input:checked + .slider::after { transform: translateX(13px); background: var(--good); }
+.switch:has(input:disabled) { opacity: .55; cursor: default; }
 .switch input:focus-visible + .slider { outline: 2px solid var(--gold); outline-offset: 2px; }
 .item.paused .name, .item.paused .price, .item.paused .meta { opacity: .5; }
 .card input.wide { flex: 1; min-width: 0; }

@@ -259,13 +259,19 @@ function renderPause() {
   $('allOn').checked = !paused;
   $('allOnText').textContent = paused ? 'All paused' : 'Alerts on';
   $('pausedNote').hidden = !paused;
+  // While everything is paused, the watchlist's and NX's own switches keep showing their own setting, dimmed and
+  // labelled Paused, and can't be flipped; on resume they're back to normal.
+  const kind = (id, on, title) => {
+    $(id).checked = on;
+    $(id).disabled = paused;
+    $(id + 'Text').textContent = paused ? 'Paused' : on ? 'On' : 'Off';
+    $(id).parentElement.title = paused ? 'All alerts are paused (the switch at the top). This comes back as it was when you resume.' : title;
+  };
   const wOn = !state.settings.watchPaused;
-  $('watchOn').checked = wOn;
-  $('watchOnText').textContent = wOn ? 'On' : 'Off';
+  kind('watchOn', wOn, "Turn the watchlist's alerts off or on. NX alerts carry on; targets are kept.");
   $('watchOffNote').hidden = paused || wOn;
-  const nOn = !state.settings.nxPaused;
-  $('nxOn').checked = nOn;
-  $('nxOnText').textContent = nOn ? 'On' : 'Off';
+  kind('nxOn', !state.settings.nxPaused, 'Turn NX alerts off or on. Your price is kept.');
+  renderNx();
 }
 $('watchOn').addEventListener('change', () => { state.settings.watchPaused = !$('watchOn').checked; renderPause(); saveSettings(); });
 $('nxOn').addEventListener('change', () => { state.settings.nxPaused = !$('nxOn').checked; renderPause(); renderNx(); saveSettings(); });
@@ -283,7 +289,8 @@ function renderSettings() {
 function renderNx() {
   const c = state.latest && state.latest.nx;
   let t = '';
-  if (state.settings.nxPaused && Number(state.settings.nxMax) > 0) t = 'Off: NX equips aren\'t checked. Your price is kept; listings that go up while off won\'t alert.';
+  if (state.settings.paused && Number(state.settings.nxMax) > 0) t = "All alerts are paused: NX equips aren't checked. Resume with the switch at the top.";
+  else if (state.settings.nxPaused && Number(state.settings.nxMax) > 0) t = 'Off: NX equips aren\'t checked. Your price is kept; listings that go up while off won\'t alert.';
   else if (nxOn(state.settings)) {
     if (!c || c.max !== Number(state.settings.nxMax)) t = 'Waiting for the first read: listings already up then are noted, not alerted.';
     else if (c.error) t = `Couldn't read the NX equip listings: ${friendlyError(c.error)}.${c.at ? ` Last read ${ago(Date.now() - c.at)}.` : ''}`;
