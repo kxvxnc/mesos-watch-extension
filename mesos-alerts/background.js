@@ -54,6 +54,13 @@ chrome.tabs.onRemoved.addListener(async tabId => {
 /* ---------- results ---------- */
 // a listing missing from a scan or two and back again isn't new: remember the ones seen for this long
 const SEEN_KEEP_MS = 6 * 3600 * 1000;
+// an NX equip's stats in its alert: without "0 slots" (NX looks have none; it only takes up room). Regular equips
+// keep theirs.
+function nxStats(st) {
+  if (!st || st.slots !== 0) return st;
+  const { slots, ...rest } = st;
+  return Object.keys(rest).length ? rest : null;
+}
 // NX equips: how far a listing's time may be before the watch began and still count as new (this computer's clock
 // against the API's)
 const NX_CLOCK_SLACK_S = 5 * 60;
@@ -159,7 +166,7 @@ async function onResult(data, hits, checked, nx, only) {
         const k = `${r.id}|${listingKey(r)}`;
         const s = seen[k];
         const restock = !!s && !!r.listed && r.listed > (s.listed || 0);
-        if (base && base.since && (s ? restock : fresh(r)) && !watched.has(Number(r.id))) nxAlerts.push({ id: r.id, name: r.name || `Item ${r.id}`, r, target: cmax, nx: true });
+        if (base && base.since && (s ? restock : fresh(r)) && !watched.has(Number(r.id))) nxAlerts.push({ id: r.id, name: r.name || `Item ${r.id}`, r: { ...r, stats: nxStats(r.stats) }, target: cmax, nx: true });
         seen[k] = { t: now, listed: Math.max((s && s.listed) || 0, r.listed || 0) };
       }
       for (const k in seen) if (now - seen[k].t > SEEN_KEEP_MS) delete seen[k];
