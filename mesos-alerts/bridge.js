@@ -54,10 +54,18 @@
       const stored = await getStored(['watch', 'settings']);
       if (!stored) return;
       const { watch = [], settings = {} } = stored;
-      if (!watch.length || settings.paused) return; // all alerts paused: no requests at all
+      if ((!watch.length && !nxOn(settings)) || settings.paused) return; // all alerts paused: no requests at all
       if (!(await send({ type: 'claim', force }))) return;
       try {
-        const data = await ask('poll', { ids: watch.map(w => Number(w.id)) });
+        // NX equips first, before the watched items (on every check, like them; the site's Live feed widget reads them
+        // every 30 s): {max, rows, truncated} or {max, error}; left out when off
+        let nx;
+        const cmax = Number(settings.nxMax) || 0;
+        if (cmax > 0) {
+          try { nx = { max: cmax, ...(await ask('nx', { max: cmax })) }; }
+          catch (err) { nx = { max: cmax, error: err }; }
+        }
+        const data = watch.length ? await ask('poll', { ids: watch.map(w => Number(w.id)) }) : {};
         // fetch the full listings only for items that can have one under the max: the summary's cheapest says so,
         // or the item can come in bundles (the summary's cheapest may be a bundle's price, not the price each)
         const dealPct = Number(settings.dealPct) || 0;
@@ -66,11 +74,11 @@
           if (w.paused) continue; // paused item: its price still updates (summary), no listings or alerts
           const x = data[w.id];
           const max = alertMax(w.target, x && x.typical, dealPct);
-          if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max, min: hasMinStats(w.minStats) ? w.minStats : null });
+          if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max, min: hasMinStats(w.minStats) ? w.minStats : null, minQty: hasMinQty(w.minQty) ? Number(w.minQty) : 0 });
         }
         const hits = need.length ? await ask('listings', { items: need }, 30000 + 15000 * need.length) : {};
         const checked = Object.fromEntries(watch.map(w => [w.id, alertCfg(w, dealPct)]));
-        await send({ type: 'result', data, hits, checked });
+        await send({ type: 'result', data, hits, checked, nx });
       } catch (err) {
         await send({ type: 'error', error: err });
       }

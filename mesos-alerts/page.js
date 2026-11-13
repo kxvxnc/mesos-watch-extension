@@ -41,34 +41,64 @@
   const statsOk = (st, min) => !min || Object.entries(min).every(([k, v]) =>
     (k === 'slots' ? (st && st.slots != null ? st.slots : -1) : (st && st[k]) || 0) >= v);
 
+  // a browse row as the extension keeps it
+  const rowOf = r => {
+    const per = r.per || 1;
+    return {
+      store: r.s && r.s.id, slot: r.slot, price: r.price, per, bundles: r.bundles || 1, unit: r.price / per,
+      ch: r.ch, r: r.r, owner: (r.s && r.s.owner) || null, title: (r.s && r.s.title) || null, seenAt: (r.s && r.s.seenAt) || null, listed: r.listed || null,
+      stats: r.stats || null
+    };
+  };
+  // newest first, one row per shop, item and price: a shop selling several stacks at the same price is one offer, as
+  // the site folds them (stacks: how many, qty: how many items in all; the newest stack's listed time)
+  const fold = rows => {
+    const folded = new Map();
+    for (const r of [...rows].sort((a, b) => (b.listed || 0) - (a.listed || 0))) {
+      const k = `${r.id || ''}|${r.store}|${r.price}|${r.per}`;
+      const f = folded.get(k);
+      if (f) { f.stacks++; f.qty += r.per * r.bundles; }
+      else folded.set(k, { ...r, stacks: 1, qty: r.per * r.bundles });
+    }
+    return [...folded.values()];
+  };
+
+  // Every NX equip listing at or under max each, on every channel, newest listed first, each with its item's id and
+  // name. The same as the site's Live feed / New listings widgets set to Equips > NX equips (v3/widgets.js browseSets,
+  // keeper): /browse of the equip tab, then the site's own rule for which items are NX (MW.cats.match 'equips.nx':
+  // a hat, top, ring... the equipment list has no class for). pmax is ours: it lets the API cut the equip tab down to
+  // the price first, so its cap (truncated, keeping the newest) drops fewer NX listings.
+  const getCats = () => { try { return window.MW && MW.cats && typeof MW.cats.match === 'function' ? MW.cats : null; } catch { return null; } };
+  async function waitNx() {
+    // the site knows which equips are NX only once its equipment list is in: until then it calls nothing NX
+    for (let i = 0; i < 120; i++) {
+      const C = getCats();
+      if (C && (typeof C.nxReady !== 'function' || C.nxReady())) return C;
+      await sleep(500);
+    }
+    throw new Error(getCats() ? "The site's NX equip list didn't load." : "Couldn't find the site's item categories (MW.cats). mesos.watch may have changed.");
+  }
+  async function nx(max) {
+    const L = await waitLive();
+    const C = await waitNx();
+    const d = await L.browse({ cat: 'equip', pmax: Math.floor(max), sort: 'listed', dir: 'desc' });
+    const I = getItems() || {};
+    const nameOf = id => (d.items && d.items[id]) || (I[id] && !I[id].unnamed && I[id].name) || null;
+    const isNx = id => { try { return C.match(id, 'equips.nx'); } catch { return false; } };
+    const rows = (d.rows || []).filter(r => isNx(r.id))
+      .map(r => ({ id: Number(r.id), name: nameOf(r.id), ...rowOf(r) })).filter(r => r.unit <= max);
+    return { rows: fold(rows), truncated: !!d.truncated };
+  }
+
   async function listings(items) {
     const L = await waitLive();
     const out = {};
-    for (const { id, max, min } of items) {
+    for (const { id, max, min, minQty } of items) {
       try {
         const d = await L.browse({ item: id, pmax: Math.floor(max), sort: 'listed', dir: 'desc' });
-        const rows = (d.rows || [])
-          .filter(r => Number(r.id) === Number(id))
-          .map(r => {
-            const per = r.per || 1;
-            return {
-              store: r.s && r.s.id, slot: r.slot, price: r.price, per, bundles: r.bundles || 1, unit: r.price / per,
-              ch: r.ch, r: r.r, owner: (r.s && r.s.owner) || null, title: (r.s && r.s.title) || null, seenAt: (r.s && r.s.seenAt) || null, listed: r.listed || null,
-              stats: r.stats || null
-            };
-          })
-          .filter(r => r.unit <= max && statsOk(r.stats, min))
-          .sort((a, b) => (b.listed || 0) - (a.listed || 0));
-        // one row per shop and price: a shop selling several stacks at the same price is one offer, as the site
-        // folds them (stacks: how many, qty: how many items in all; the newest stack's listed time)
-        const folded = new Map();
-        for (const r of rows) {
-          const k = `${r.store}|${r.price}|${r.per}`;
-          const f = folded.get(k);
-          if (f) { f.stacks++; f.qty += r.per * r.bundles; }
-          else folded.set(k, { ...r, stacks: 1, qty: r.per * r.bundles });
-        }
-        out[id] = [...folded.values()];
+        const rows = (d.rows || []).filter(r => Number(r.id) === Number(id)).map(rowOf).filter(r => r.unit <= max && statsOk(r.stats, min));
+        // minQty: the fewest pieces the shop's offer must have in all (checked after folding, so stacks add up)
+        out[id] = fold(rows).filter(f => !(minQty > 0) || f.qty >= minQty);
       } catch (err) {
         const e = errInfo(err);
         out[id] = { error: e.userMessage || e.message, detail: e };
@@ -114,6 +144,7 @@
       if (type === 'ping') { await waitLive(); reply(true, true); }
       else if (type === 'poll') reply(true, await poll(payload.ids));
       else if (type === 'listings') reply(true, await listings(payload.items));
+      else if (type === 'nx') reply(true, await nx(payload.max));
       else if (type === 'search') reply(true, await search(payload.q));
       else reply(false, { message: 'unknown request ' + type });
     } catch (err) {

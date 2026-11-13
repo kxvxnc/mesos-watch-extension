@@ -73,7 +73,7 @@ function renderList() {
     ctl.append(sw, lab, input, rm);
 
     li.append(name, price, meta, ctl);
-    if (isEquip(w.id)) li.append(statFilter(w));
+    li.append(isEquip(w.id) ? statFilter(w) : qtyFilter(w));
 
     if (w.paused) meta.append(el('div', null, 'Paused: no alerts until you turn it back on. Its target is kept.'));
 
@@ -142,6 +142,33 @@ function statFilter(w) {
   add.addEventListener('click', doAdd);
   val.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
   box.append(sel, val, add);
+  return box;
+}
+
+// an item that stacks: the fewest pieces a shop's offer must have in all (its stacks at that price added up)
+function qtyFilter(w) {
+  const box = el('div', 'statf');
+  const has = hasMinQty(w.minQty);
+  box.append(el('span', 'lab', 'Only alert with at least'));
+  const val = el('input');
+  val.type = 'text';
+  val.inputMode = 'numeric';
+  val.placeholder = 'any';
+  val.value = has ? String(w.minQty) : '';
+  val.title = "Only shops with at least this many pieces in all at that price alert (their stacks added up). Empty: any amount.";
+  val.addEventListener('change', () => {
+    const t = val.value.trim().replace(/[,\s]/g, '');
+    const v = t ? Number(t) : 0;
+    if (!Number.isInteger(v) || v < 0 || v > 9999999) { val.classList.add('err'); return; }
+    val.classList.remove('err');
+    setWatch(list => list.map(o => {
+      if (o.id !== w.id) return o;
+      const { minQty, ...rest } = o;
+      return v > 0 ? { ...rest, minQty: v } : rest;
+    }));
+  });
+  val.addEventListener('keydown', e => { if (e.key === 'Enter') val.blur(); });
+  box.append(val, el('span', null, 'pieces'));
   return box;
 }
 
@@ -239,7 +266,32 @@ function renderSettings() {
   $('interval').value = state.settings.intervalSec;
   $('deal').value = state.settings.dealPct;
   $('notify').checked = state.settings.notify;
+  if (document.activeElement !== $('nxMax')) $('nxMax').value = nxOn(state.settings) ? fmtMesos(state.settings.nxMax) : '';
+  renderNx();
 }
+// how the last read of NX equips went
+function renderNx() {
+  const c = state.latest && state.latest.nx;
+  let t = '';
+  if (nxOn(state.settings)) {
+    if (!c || c.max !== Number(state.settings.nxMax)) t = 'Waiting for the first read: listings already up then are noted, not alerted.';
+    else if (c.error) t = `Couldn't read the NX equip listings: ${friendlyError(c.error)}.${c.at ? ` Last read ${ago(Date.now() - c.at)}.` : ''}`;
+    else t = `${c.hitCount} offer${c.hitCount === 1 ? '' : 's'} at or under it now${c.truncated ? ' (the newest ones: the site sends a capped list)' : ''}`
+      + ` · read ${ago(Date.now() - c.at)} · items you watch use their own target.`;
+  }
+  $('nxInfo').textContent = t;
+  $('nxInfo').hidden = !t;
+  $('nxInfo').classList.toggle('err', !!(c && c.error && nxOn(state.settings)));
+}
+$('nxMax').addEventListener('change', () => {
+  const v = parseMesos($('nxMax').value);
+  if (isNaN(v)) { $('nxMax').classList.add('err'); return; }
+  $('nxMax').classList.remove('err');
+  state.settings.nxMax = v > 0 ? v : 0;
+  $('nxMax').value = v > 0 ? fmtMesos(v) : '';
+  saveSettings();
+});
+$('nxMax').addEventListener('keydown', e => { if (e.key === 'Enter') $('nxMax').blur(); });
 $('interval').addEventListener('change', () => {
   state.settings.intervalSec = Math.max(30, Math.round(Number($('interval').value) || 60));
   $('interval').value = state.settings.intervalSec;
@@ -253,7 +305,7 @@ $('deal').addEventListener('change', () => {
 $('notify').addEventListener('change', () => { state.settings.notify = $('notify').checked; saveSettings(); });
 
 /* ---------- error log ---------- */
-const SOURCE = { check: 'Check', listings: 'Listings', discord: 'Discord', search: 'Search' };
+const SOURCE = { check: 'Check', listings: 'Listings', nx: 'NX listings', discord: 'Discord', search: 'Search' };
 const when = t => new Date(t).toLocaleString();
 const errText = e => [
   `${when(e.at)}${e.count > 1 ? ` (×${e.count}, last ${when(e.lastAt)})` : ''} · ${SOURCE[e.source] || e.source}${e.item ? ' · ' + e.item + (e.itemId ? ` #${e.itemId}` : '') : ''}`,
@@ -432,6 +484,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if ((changes.latest || changes.watch) && !editing) renderList();
   if (changes.latest || changes.watch || changes.settings) renderStatus(state);
   if (changes.settings) renderSettings();
+  else if (changes.latest) renderNx();
   if (changes.settings) renderPause();
   if (changes.settings || changes.webhookStatus) renderWebhook();
   if (changes.errors) renderErrors();

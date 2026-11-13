@@ -104,4 +104,5 @@ function wireHeader(getState, closeAfter) {
 const placeOf = r => `Ch ${r.ch} · Room ${r.r}${r.owner ? ' · ' + r.owner : ''}${r.title ? ` · “${r.title}”` : ''}`;
 // its price: "140", "950 ea", "140 ×5"
 const priceOf = r => fmtMesos(r.unit) + (r.per > 1 ? ' ea' : '') + (r.stacks > 1 ? ` ×${r.stacks}` : '');
-const priceTitle = r => (r.per > 1 ? `${r.per} for ` : '') + `${Number(r.price).toLocaleString('en-US')} mesos` + (r.stacks > 1 ? ` · ${r.stacks} stacks` : '');
+const priceTitle = r => (r.per > 1 ? `${r.per} for ` : '') + `${Number(r.price).toLocaleString('en-US')} mesos` + (r.stacks > 1 ? ` · ${r.stacks} stacks` : '') +
+  (r.qty > 1 ? ` · ${r.qty.toLocaleString('en-US')} pcs in all` : '');

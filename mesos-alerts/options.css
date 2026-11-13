@@ -15,7 +15,10 @@ main { max-width: 820px; margin: 0 auto; padding: 16px 24px 48px; display: flex;
 .fold[open] > summary { margin-bottom: 10px; }
 .fold > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
 .card label { display: block; margin: 10px 0; }
-.card input[type=number] { width: 72px; padding: 3px 6px; }
+.card input[type=number], #nxMax { width: 72px; padding: 3px 6px; }
+#nxMax.err { border-color: var(--bad); }
+#nxInfo { margin-top: -4px; }
+#nxInfo.err { color: var(--bad); }
 .card .row { display: flex; gap: 8px; margin-top: 10px; }
 .card .hint { margin: 8px 0 0; }
 .cardhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }

@@ -52,15 +52,20 @@ chrome.tabs.onRemoved.addListener(async tabId => {
 /* ---------- results ---------- */
 // a listing missing from a scan or two and back again isn't new: remember the ones seen for this long
 const SEEN_KEEP_MS = 6 * 3600 * 1000;
+// NX equips: how far a listing's time may be before the watch began and still count as new (this computer's clock
+// against the API's)
+const NX_CLOCK_SLACK_S = 5 * 60;
 
 // data: the summary per item; hits: the listings at or under the max per item (missing = none, null = that check failed);
 // checked: each item the tab checked, with its alertCfg then (null: a tab from before this was sent, taken as current)
-async function onResult(data, hits, checked) {
+// nx: the NX equip offers at or under settings.nxMax ({max, rows, truncated} or {max, error}), when read this time
+async function onResult(data, hits, checked, nx) {
   const st = await getState();
   const settings = settingsOf(st.settings);
   const now = Date.now();
   const items = {};
   const alerts = [];
+  const nxAlerts = [];
   const names = {};
 
   for (const w of st.watch) {
@@ -90,10 +95,10 @@ async function onResult(data, hits, checked) {
       hitsError = (rows && rows.error) || 'Could not read the listings';
       st.errors = addError(st.errors, { source: 'listings', item: name, itemId: w.id, ...((rows && rows.detail) || { message: hitsError }) });
       hitsAt = prevItem ? prevItem.hitsAt || null : null;
-      rows = ((prevItem && prevItem.hits) || []).filter(r => r.unit <= max && statsOk(r.stats, w.minStats));
+      rows = ((prevItem && prevItem.hits) || []).filter(r => r.unit <= max && statsOk(r.stats, w.minStats) && qtyOk(r, w.minQty));
     } else {
       rows = (rows || []).filter(r => r.unit <= max);
-      // Alert only on listings that show up after the item was added or its target, stat filter or the deal % last
+      // Alert only on listings that show up after the item was added or its target, stat or piece filter or the deal % last
       // changed: the first check after that just notes what's already up, silently.
       // An offer is a shop + price; it alerts when it first shows up, and again when that shop lists a newer stack at
       // that price (a restock). seen[offer] = {t: last seen, listed: its newest stack's listed time}.
@@ -116,21 +121,63 @@ async function onResult(data, hits, checked) {
       : { name, paused: !!w.paused, cheapest: null, listings: 0, under: false, hits: [], hitCount: 0, hitsError, hitsAt };
 
   }
-  for (const id in st.alerted) if (!st.watch.some(w => String(w.id) === id)) delete st.alerted[id]; // removed items
+  for (const id in st.alerted) if (id !== 'nx' && !st.watch.some(w => String(w.id) === id)) delete st.alerted[id]; // removed items
+
+  // NX equips: any of them at or under nxMax each. Items on the watchlist are left to their own targets.
+  // Its alerts work like an item's: the first read under a new nxMax notes what's up, silently.
+  let nxState = (st.latest && st.latest.nx) || null;
+  const cmax = Number(settings.nxMax) || 0;
+  if (!(cmax > 0)) { delete st.alerted.nx; nxState = null; }
+  else if (nx && nx.max === cmax) {
+    if (nx.error) {
+      const e = typeof nx.error === 'object' && nx.error ? nx.error : { message: String(nx.error) };
+      const msg = e.userMessage || e.message || 'Could not read the NX equip listings';
+      st.errors = addError(st.errors, { source: 'nx', ...e, message: e.message || msg });
+      nxState = { ...(nxState && nxState.max === cmax ? nxState : { hitCount: 0, at: null }), max: cmax, error: msg };
+    } else {
+      const watched = new Set(st.watch.map(w => Number(w.id)));
+      const all = (nx.rows || []).filter(r => r.unit <= cmax);
+      const rows = all.filter(r => !watched.has(Number(r.id)));
+      const cfg = String(cmax);
+      const prev = st.alerted.nx;
+      const base = prev && prev.cfg === cfg && prev.seen ? prev : null;
+      const seen = base ? { ...base.seen } : {};
+      // The equip tab is too big for one answer: the API caps it, and which offers make the cut shifts from read to
+      // read. So an offer not seen before alerts only if it was listed after this NX watch began (since, in the API's
+      // unix seconds, less a few minutes for clocks that differ): an old offer coming into the cut is noted silently.
+      // A record from before since was kept starts over from now.
+      const since = base && base.since ? base.since : Math.floor(now / 1000);
+      const fresh = r => !!r.listed && r.listed >= since - NX_CLOCK_SLACK_S;
+      // a watched item's offers are noted too, without alerting: taking it off the watchlist then doesn't make the
+      // offers already up look new here
+      for (const r of all) {
+        const k = `${r.id}|${listingKey(r)}`;
+        const s = seen[k];
+        const restock = !!s && !!r.listed && r.listed > (s.listed || 0);
+        if (base && base.since && (s ? restock : fresh(r)) && !watched.has(Number(r.id))) nxAlerts.push({ id: r.id, name: r.name || `Item ${r.id}`, r, target: cmax, nx: true });
+        seen[k] = { t: now, listed: Math.max((s && s.listed) || 0, r.listed || 0) };
+      }
+      for (const k in seen) if (now - seen[k].t > SEEN_KEEP_MS) delete seen[k];
+      st.alerted.nx = { cfg, since, seen };
+      nxState = { max: cmax, at: now, hitCount: rows.length, truncated: !!nx.truncated, error: null };
+    }
+  }
 
   // new alerts go on top of the inbox; the same offer alerting again replaces its old entry
+  // NX alerts lead the batch: on top in the popup, the first desktop notifications, the first Discord cards
+  alerts.unshift(...nxAlerts);
   if (alerts.length) {
     const fresh = alerts.map(a => ({
       key: `${a.id}|${listingKey(a.r)}`, at: now, id: a.id, name: a.name,
       unit: a.r.unit, price: a.r.price, per: a.r.per, stacks: a.r.stacks || 1,
       ch: a.r.ch, r: a.r.r, owner: a.r.owner, title: a.r.title || null, listed: a.r.listed, stats: a.r.stats || null, why: alertWhy(a, settings.dealPct),
-      tag: a.target > 0 && a.r.unit <= a.target ? `≤ ${fmtMesos(a.target)}` : `${settings.dealPct}% under typical`
+      tag: a.nx ? `NX ≤ ${fmtMesos(a.target)}` : a.target > 0 && a.r.unit <= a.target ? `≤ ${fmtMesos(a.target)}` : `${settings.dealPct}% under typical`
     }));
     const keys = new Set(fresh.map(e => e.key));
     st.inbox = fresh.concat(st.inbox.filter(e => !keys.has(e.key))).slice(0, MWA_INBOX_CAP);
   }
 
-  const save = { latest: { at: now, items, error: null }, alerted: st.alerted, inbox: st.inbox, errors: st.errors };
+  const save = { latest: { at: now, items, nx: nxState, error: null }, alerted: st.alerted, inbox: st.inbox, errors: st.errors };
   // only the names change here: anything else in the watchlist (a target typed meanwhile) is left as it is
   if (Object.keys(names).length) save.watch = st.watch.map(w => (names[w.id] ? { ...w, name: names[w.id] } : w));
   await chrome.storage.local.set(save);
@@ -169,14 +216,16 @@ async function updateBadge() {
     return setBadge('!', '#d97706', 'Mesos Watch Alerts: ' + latest.error.message);
   }
   const limit = Math.max(3 * 60000, 3 * settingsOf(settings).intervalSec * 1000);
-  if (watch.length && (!latest || !latest.at || Date.now() - latest.at > limit)) {
+  if ((watch.length || nxOn(settings)) && (!latest || !latest.at || Date.now() - latest.at > limit)) {
     const tabs = await chrome.tabs.query({ url: 'https://mesos.watch/*' });
     return setBadge('off', '#6b7280', tabs.length ? 'Mesos Watch Alerts: tab open but not checking (reload it?)' : 'Mesos Watch Alerts: open mesos.watch to start checking');
   }
   const failing = Object.values((latest && latest.items) || {}).filter(x => x.hitsError);
   if (failing.length) return setBadge('!', '#d97706', `Mesos Watch Alerts: couldn't read the listings for ${failing.map(x => x.name).join(', ')} (${failing[0].hitsError})`);
   if (inbox.length) return setBadge(inbox.length > 99 ? '99+' : String(inbox.length), '#1f9d55', `${inbox.length} new alert${inbox.length > 1 ? 's' : ''}`);
-  return setBadge('', null, watch.length ? 'Mesos Watch Alerts: watching' : 'Mesos Watch Alerts');
+  const cs = latest && latest.nx;
+  if (cs && cs.error) return setBadge('!', '#d97706', `Mesos Watch Alerts: couldn't read the NX equip listings (${cs.error})`);
+  return setBadge('', null, watch.length || nxOn(settings) ? 'Mesos Watch Alerts: watching' : 'Mesos Watch Alerts');
 }
 chrome.storage.onChanged.addListener((c, area) => {
   if (area !== 'local') return;
@@ -193,6 +242,7 @@ chrome.alarms.onAlarm.addListener(a => { if (a.name === 'stale') updateBadge(); 
 /* ---------- notifications ---------- */
 // why an offer alerted, in words
 function alertWhy(a, dealPct) {
+  if (a.nx) return `An NX equip under your limit of ${fmtMesos(a.target)}`;
   return a.target > 0 && a.r.unit <= a.target
     ? `Under your target of ${fmtMesos(a.target)}`
     : `${dealPct}%+ under typical (${fmtMesos(a.typical)})`;
@@ -294,7 +344,7 @@ chrome.notifications.onClicked.addListener(id => { chrome.notifications.clear(id
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = p => { p.then(r => sendResponse(r === undefined ? true : r), () => sendResponse(false)); return true; };
   if (msg.type === 'claim') return reply(claim(sender.tab ? sender.tab.id : -1, !!msg.force));
-  if (msg.type === 'result') return reply(serial(() => onResult(msg.data, msg.hits || {}, msg.checked || null)));
+  if (msg.type === 'result') return reply(serial(() => onResult(msg.data || {}, msg.hits || {}, msg.checked || null, msg.nx)));
   if (msg.type === 'error') return reply(serial(() => onError(msg.error)));
   if (msg.type === 'dismiss') return reply(serial(() => dismiss(msg.key, msg.at)));
   if (msg.type === 'clearInbox') return reply(serial(clearInbox));

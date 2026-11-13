@@ -25,8 +25,8 @@ function renderInbox() {
   const w = state.watch.length;
   $('emptyText').textContent = state.settings.paused
     ? 'All alerts are paused. Press the play button at the top to resume.'
-    : w
-    ? `Nothing new. Watching ${w} item${w > 1 ? 's' : ''}: new listings at or under your targets show up here.`
+    : w || nxOn(state.settings)
+    ? `Nothing new. Watching ${[w ? `${w} item${w > 1 ? 's' : ''}` : '', nxOn(state.settings) ? `NX equips ≤ ${fmtMesos(state.settings.nxMax)}` : ''].filter(Boolean).join(' and ')}: new listings show up here.`
     : 'No items watched yet. Add some and set a target price to get alerts.';
   $('setup').textContent = w ? 'Edit alerts' : 'Set up alerts';
 

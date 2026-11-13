@@ -1,12 +1,13 @@
 // Watchlist export/import (settings page). The format is JSON, so it can be pasted in Discord or saved as a file:
-// {"app":"mesos-watch-alerts","v":1,"items":[{"id":1302000,"name":"Item","target":500000,"minStats":{"watk":20},"paused":true}]}
-// Only items, targets and stat filters travel: never the Discord webhook or alerts.
+// {"app":"mesos-watch-alerts","v":1,"items":[{"id":1302000,"name":"Item","target":500000,"minStats":{"watk":20},"paused":true},{"id":4000000,"target":100,"minQty":200}]}
+// Only items, targets, stat filters and piece minimums travel: never the Discord webhook or alerts.
 const SHARE_APP = 'mesos-watch-alerts';
 
 function exportWatch(watch) {
   const items = watch.map(w => {
     const o = { id: w.id, name: w.name || null, target: w.target > 0 ? w.target : 0 };
     if (hasMinStats(w.minStats)) o.minStats = w.minStats;
+    if (hasMinQty(w.minQty)) o.minQty = w.minQty;
     if (w.paused) o.paused = true;
     return o;
   });
@@ -40,6 +41,9 @@ function parseWatchImport(text) {
     const min = {};
     if (ms) for (const [k] of MWA_STATS) { const v = Number(ms[k]); if (ms[k] != null && Number.isInteger(v) && v >= 0 && v <= 99999) min[k] = v; }
     if (hasMinStats(min)) item.minStats = min;
+    // piece minimum: items that stack only, a whole number
+    const q = r && typeof r === 'object' ? Number(r.minQty) : 0;
+    if (!isEquip(id) && Number.isInteger(q) && q > 0 && q <= 9999999) item.minQty = q;
     byId.set(id, item); // a repeated ID: the last one wins
   }
   if (!byId.size) throw new Error('No items found in that list.');
@@ -54,8 +58,9 @@ function importPlan(watch, items, replace) {
   for (const i of items) {
     const w = mine.get(i.id);
     if (!w) added++;
-    else if (replace ? (w.target !== i.target || !!w.paused !== i.paused || minStatsSig(w.minStats) !== minStatsSig(i.minStats))
-      : i.target > 0 && (w.target !== i.target || (hasMinStats(i.minStats) && minStatsSig(w.minStats) !== minStatsSig(i.minStats)))) changed++;
+    else if (replace ? (w.target !== i.target || !!w.paused !== i.paused || minStatsSig(w.minStats) !== minStatsSig(i.minStats) || (w.minQty || 0) !== (i.minQty || 0))
+      : i.target > 0 && (w.target !== i.target || (hasMinStats(i.minStats) && minStatsSig(w.minStats) !== minStatsSig(i.minStats))
+        || (hasMinQty(i.minQty) && (w.minQty || 0) !== i.minQty))) changed++;
     else same++;
   }
   const removed = replace ? watch.filter(w => !theirs.has(w.id)).length : 0;
@@ -63,7 +68,7 @@ function importPlan(watch, items, replace) {
 }
 
 // Add: new items are appended; an item you already watch takes the imported target (if it has one) and its stat
-// filter (if it has one), and keeps your own on/off and name. Replace: the list becomes the imported one.
+// filter and piece minimum (if it has them), and keeps your own on/off and name. Replace: the list becomes the imported one.
 function applyImport(watch, items, replace) {
   if (replace) {
     const mine = new Map(watch.map(w => [w.id, w]));
@@ -75,6 +80,7 @@ function applyImport(watch, items, replace) {
     if (!i || !(i.target > 0)) return w;
     const o = { ...w, target: i.target, name: w.name || i.name };
     if (hasMinStats(i.minStats)) o.minStats = i.minStats;
+    if (hasMinQty(i.minQty)) o.minQty = i.minQty;
     return o;
   });
   const have = new Set(watch.map(w => w.id));

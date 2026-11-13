@@ -1,5 +1,7 @@
 // Shared by background.js (importScripts) and popup.js (<script>).
-const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true, webhook: '', discordOn: true, paused: false };
+// nxMax: alert for any NX equip listed at or under this price each (0 = off)
+const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true, webhook: '', discordOn: true, paused: false, nxMax: 0 };
+const nxOn = settings => !!settings && Number(settings.nxMax) > 0;
 
 // a Discord channel webhook: https://discord.com/api/webhooks/<id>/<token> (also discordapp.com, canary., ptb.)
 const MWA_WEBHOOK_ORIGINS = ['https://discord.com/api/webhooks/*', 'https://discordapp.com/api/webhooks/*',
@@ -80,13 +82,19 @@ function statsText(st) {
 }
 // {str: 5, slots: 7} -> "STR ≥ 5 · Slots ≥ 7"
 const minStatsText = m => MWA_STATS.filter(([k]) => m && m[k] != null).map(([k, l]) => `${l} ≥ ${m[k]}`).join(' · ');
+// A watched item's minQty (not equips): the fewest pieces a shop's offer must have in all, its stacks at that price
+// added up (qty). 0 or missing = any amount.
+const hasMinQty = q => Number(q) > 0;
+const qtyOf = r => r.qty != null ? r.qty : (r.per || 1) * (r.bundles || 1) * (r.stacks || 1);
+const qtyOk = (r, minQty) => !hasMinQty(minQty) || qtyOf(r) >= minQty;
 // a stable string for a filter, so changing it re-notes what's already listed ('' = none)
 const minStatsSig = m => (hasMinStats(m) ? MWA_STATS.filter(([k]) => m[k] != null).map(([k]) => `${k}${m[k]}`).join(',') : '');
-// What a watched item's alerts depend on, as a string: its target, the deal % and its stat filter ('paused' while
+// What a watched item's alerts depend on, as a string: its target, the deal % and its stat and piece filters ('paused' while
 // paused). The tab sends it for each item it checked; a check made under another one (the item was added, changed or
 // resumed while it ran) can't say which listings were already up.
 function alertCfg(w, dealPct) {
   if (w.paused) return 'paused';
   const sig = minStatsSig(w.minStats);
-  return `${w.target}|${Number(dealPct) || 0}` + (sig ? `|${sig}` : ''); // no filter: same as before filters existed
+  // no filter: same as before filters existed
+  return `${w.target}|${Number(dealPct) || 0}` + (sig ? `|${sig}` : '') + (hasMinQty(w.minQty) ? `|q${w.minQty}` : '');
 }
