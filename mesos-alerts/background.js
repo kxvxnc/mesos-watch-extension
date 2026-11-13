@@ -35,10 +35,12 @@ const logErrors = entries => serial(async () => {
 // The first tab to ask becomes the leader; another tab takes over only if the leader stops checking.
 async function claim(tabId, force) {
   const { leader } = await chrome.storage.session.get('leader');
-  const { settings } = await getState();
-  const ivl = settingsOf(settings).intervalSec * 1000;
+  const { settings, watch } = await getState();
+  // the leader checks at the quickest delay of what's running: past 1.5 of it without a check, it has stopped. Never
+  // under 45 s, so a very short NX delay doesn't hand the checking to another tab while a slow read is still running.
+  const ivl = Math.min(...runningIntervals(settingsOf(settings), watch), settingsOf(settings).intervalSec) * 1000;
   const now = Date.now();
-  if (force || !leader || leader.tabId === tabId || now - leader.at > ivl * 1.5) {
+  if (force || !leader || leader.tabId === tabId || now - leader.at > Math.max(45000, ivl * 1.5)) {
     await chrome.storage.session.set({ leader: { tabId, at: now } });
     return true;
   }
@@ -59,7 +61,8 @@ const NX_CLOCK_SLACK_S = 5 * 60;
 // data: the summary per item; hits: the listings at or under the max per item (missing = none, null = that check failed);
 // checked: each item the tab checked, with its alertCfg then (null: a tab from before this was sent, taken as current)
 // nx: the NX equip offers at or under settings.nxMax ({max, rows, truncated} or {max, error}), when read this time
-async function onResult(data, hits, checked, nx) {
+// only: 'nx' for an NX-only check (the watchlist's results are kept as they are)
+async function onResult(data, hits, checked, nx, only) {
   const st = await getState();
   const settings = settingsOf(st.settings);
   const now = Date.now();
@@ -68,7 +71,9 @@ async function onResult(data, hits, checked, nx) {
   const nxAlerts = [];
   const names = {};
 
-  for (const w of st.watch) {
+  const prevItems = (st.latest && st.latest.items) || {};
+  if (only === 'nx') Object.assign(items, prevItems);
+  else for (const w of st.watch) {
     const x = data[w.id] || null;
     if (x && x.name && x.name !== w.name) names[w.id] = x.name;
     const name = (x && x.name) || w.name || `Item ${w.id}`;
@@ -126,7 +131,7 @@ async function onResult(data, hits, checked, nx) {
   // NX equips: any of them at or under nxMax each. Items on the watchlist are left to their own targets.
   // Its alerts work like an item's: the first read under a new nxMax notes what's up, silently.
   let nxState = (st.latest && st.latest.nx) || null;
-  const cmax = Number(settings.nxMax) || 0;
+  const cmax = nxOn(settings) ? Number(settings.nxMax) : 0;
   if (!(cmax > 0)) { delete st.alerted.nx; nxState = null; }
   else if (nx && nx.max === cmax) {
     if (nx.error) {
@@ -170,21 +175,22 @@ async function onResult(data, hits, checked, nx) {
     const fresh = alerts.map(a => ({
       key: `${a.id}|${listingKey(a.r)}`, at: now, id: a.id, name: a.name,
       unit: a.r.unit, price: a.r.price, per: a.r.per, stacks: a.r.stacks || 1,
-      ch: a.r.ch, r: a.r.r, owner: a.r.owner, title: a.r.title || null, listed: a.r.listed, stats: a.r.stats || null, why: alertWhy(a, settings.dealPct),
+      store: a.r.store != null ? a.r.store : null, ch: a.r.ch, r: a.r.r, owner: a.r.owner, title: a.r.title || null, listed: a.r.listed, stats: a.r.stats || null, why: alertWhy(a, settings.dealPct),
       tag: a.nx ? `NX ≤ ${fmtMesos(a.target)}` : a.target > 0 && a.r.unit <= a.target ? `≤ ${fmtMesos(a.target)}` : `${settings.dealPct}% under typical`
     }));
     const keys = new Set(fresh.map(e => e.key));
     st.inbox = fresh.concat(st.inbox.filter(e => !keys.has(e.key))).slice(0, MWA_INBOX_CAP);
   }
 
-  const save = { latest: { at: now, items, nx: nxState, error: null }, alerted: st.alerted, inbox: st.inbox, errors: st.errors };
+  // an NX-only check says nothing about the watchlist: keep its last error
+  const save = { latest: { at: now, items, nx: nxState, error: only === 'nx' ? (st.latest && st.latest.error) || null : null }, alerted: st.alerted, inbox: st.inbox, errors: st.errors };
   // only the names change here: anything else in the watchlist (a target typed meanwhile) is left as it is
   if (Object.keys(names).length) save.watch = st.watch.map(w => (names[w.id] ? { ...w, name: names[w.id] } : w));
   await chrome.storage.local.set(save);
 
   if (settings.notify) notify(alerts, settings.dealPct);
   if (alerts.length && settings.discordOn && isWebhookUrl(settings.webhook)) {
-    postWebhook(settings.webhook, alerts.map(a => webhookEmbed(a, settings.dealPct))).catch(() => {});
+    postWebhook(settings.webhook, byShop(alerts, a => a.r).map(g => webhookEmbed(g, settings.dealPct))).catch(() => {});
   }
 }
 
@@ -197,9 +203,10 @@ async function onError(error) {
   });
 }
 
-const dismiss = async (key, at) => {
+// one alert, or several at once (a shop's): [{key, at}]
+const dismiss = async list => {
   const { inbox } = await getState();
-  await chrome.storage.local.set({ inbox: inbox.filter(e => !(e.key === key && e.at === at)) });
+  await chrome.storage.local.set({ inbox: inbox.filter(e => !list.some(d => e.key === d.key && e.at === d.at)) });
 };
 const clearInbox = () => chrome.storage.local.set({ inbox: [] });
 
@@ -215,25 +222,36 @@ async function updateBadge() {
   if (latest && latest.error && (!latest.at || latest.error.at >= latest.at)) {
     return setBadge('!', '#d97706', 'Mesos Watch Alerts: ' + latest.error.message);
   }
-  const limit = Math.max(3 * 60000, 3 * settingsOf(settings).intervalSec * 1000);
-  if ((watch.length || nxOn(settings)) && (!latest || !latest.at || Date.now() - latest.at > limit)) {
+  const S = settingsOf(settings), running = runningIntervals(S, watch);
+  const limit = Math.max(3 * 60000, 3 * Math.max(0, ...running) * 1000);
+  if (running.length && (!latest || !latest.at || Date.now() - latest.at > limit)) {
     const tabs = await chrome.tabs.query({ url: 'https://mesos.watch/*' });
     return setBadge('off', '#6b7280', tabs.length ? 'Mesos Watch Alerts: tab open but not checking (reload it?)' : 'Mesos Watch Alerts: open mesos.watch to start checking');
   }
-  const failing = Object.values((latest && latest.items) || {}).filter(x => x.hitsError);
+  const failing = watchOn(S, watch) ? Object.values((latest && latest.items) || {}).filter(x => x.hitsError) : [];
   if (failing.length) return setBadge('!', '#d97706', `Mesos Watch Alerts: couldn't read the listings for ${failing.map(x => x.name).join(', ')} (${failing[0].hitsError})`);
   if (inbox.length) return setBadge(inbox.length > 99 ? '99+' : String(inbox.length), '#1f9d55', `${inbox.length} new alert${inbox.length > 1 ? 's' : ''}`);
   const cs = latest && latest.nx;
-  if (cs && cs.error) return setBadge('!', '#d97706', `Mesos Watch Alerts: couldn't read the NX equip listings (${cs.error})`);
-  return setBadge('', null, watch.length || nxOn(settings) ? 'Mesos Watch Alerts: watching' : 'Mesos Watch Alerts');
+  if (nxOn(S) && cs && cs.error) return setBadge('!', '#d97706', `Mesos Watch Alerts: couldn't read the NX equip listings (${cs.error})`);
+  return setBadge('', null, running.length ? 'Mesos Watch Alerts: watching' : 'Mesos Watch Alerts');
 }
 chrome.storage.onChanged.addListener((c, area) => {
   if (area !== 'local') return;
   if (c.inbox || c.watch || c.latest || c.settings) updateBadge();
   // all alerts paused or resumed: forget what was seen, so the first check after resuming notes what's up, silently
   // (on resume too: a check already running when you paused may have saved it again)
-  if (c.settings && !!(c.settings.oldValue || {}).paused !== !!(c.settings.newValue || {}).paused) {
+  const was = c.settings ? c.settings.oldValue || {} : null, now = c.settings ? c.settings.newValue || {} : null;
+  if (was && !!was.paused !== !!now.paused) {
     serial(() => chrome.storage.local.set({ alerted: {} }));
+  } else if (was && (!!was.watchPaused !== !!now.watchPaused || !!was.nxPaused !== !!now.nxPaused)) {
+    // one kind turned off or on: the same, for that kind only
+    serial(async () => {
+      const { alerted } = await getState();
+      const keep = {};
+      if (!!was.watchPaused === !!now.watchPaused) for (const k in alerted) if (k !== 'nx') keep[k] = alerted[k];
+      if (!!was.nxPaused === !!now.nxPaused && alerted.nx) keep.nx = alerted.nx;
+      await chrome.storage.local.set({ alerted: keep });
+    });
   }
 });
 chrome.alarms.create('stale', { periodInMinutes: 1 });
@@ -248,45 +266,73 @@ function alertWhy(a, dealPct) {
     : `${dealPct}%+ under typical (${fmtMesos(a.typical)})`;
 }
 
-// one notification per new listing, up to 3; past that, one more that sums up the rest
+// one notification per shop, up to 3 shops; past that, one more that sums up the rest
 // (not a 'list' notification: macOS shows only its first line)
 let noteSeq = 0;
+const shopName = r => (r.owner ? `${r.owner}'s shop` : 'A shop') + ` · Ch ${r.ch} · Room ${r.r}`;
 function notify(alerts, dealPct) {
   if (!alerts.length) return;
   const each = r => fmtMesos(r.unit) + (r.per > 1 ? ' each' : '');
   const place = r => `Ch ${r.ch} · Room ${r.r}${r.owner ? ' · ' + r.owner : ''}${r.title ? ` · “${r.title}”` : ''}`;
   const create = opts => chrome.notifications.create(`mwa:${Date.now()}:${++noteSeq}`, { type: 'basic', iconUrl: 'icons/128.png', priority: 2, ...opts });
 
-  for (const a of alerts.slice(0, 3)) {
-    const bundle = (a.r.per > 1 ? `${a.r.per} for ${fmtMesos(a.r.price)} · ` : '') + (a.r.stacks > 1 ? `${a.r.stacks} stacks · ` : '');
-    const when = a.r.listed ? ` · listed ${agoS(a.r.listed)}` : '';
-    const st = statsText(a.r.stats);
-    create({ title: `${a.name}: ${each(a.r)}`, message: `${st ? st + '\n' : ''}${bundle}${place(a.r)}\n${alertWhy(a, dealPct)}${when}` });
+  const shops = byShop(alerts, a => a.r);
+  for (const g of shops.slice(0, 3)) {
+    const a = g[0];
+    if (g.length === 1) {
+      const bundle = (a.r.per > 1 ? `${a.r.per} for ${fmtMesos(a.r.price)} · ` : '') + (a.r.stacks > 1 ? `${a.r.stacks} stacks · ` : '');
+      const when = a.r.listed ? ` · listed ${agoS(a.r.listed)}` : '';
+      const st = statsText(a.r.stats);
+      create({ title: `${a.name}: ${each(a.r)}`, message: `${st ? st + '\n' : ''}${bundle}${place(a.r)}\n${alertWhy(a, dealPct)}${when}` });
+    } else {
+      // a shop with several: the shop, then its items (the first few)
+      const lines = g.slice(0, 4).map(x => `${x.name}: ${each(x.r)}`);
+      if (g.length > 4) lines.push(`+${g.length - 4} more`);
+      create({ title: `${g.length} listings · ${shopName(a.r)}`, message: (a.r.title ? `“${a.r.title}”\n` : '') + lines.join('\n') });
+    }
   }
-  const rest = alerts.slice(3);
+  const rest = shops.slice(3);
   if (rest.length) {
+    const n = rest.reduce((t, g) => t + g.length, 0);
     create({
-      title: `${rest.length} more listing${rest.length > 1 ? 's' : ''} under your targets`,
-      message: rest.slice(0, 4).map(a => `${a.name} ${each(a.r)} · Ch ${a.r.ch}`).join('\n') + (rest.length > 4 ? '\nOpen the extension for the rest.' : '')
+      title: `${n} more listing${n > 1 ? 's' : ''} in ${rest.length} more shop${rest.length > 1 ? 's' : ''}`,
+      message: rest.slice(0, 4).map(g => `${shopName(g[0].r)}: ${g.length > 1 ? `${g.length} listings` : `${g[0].name} ${each(g[0].r)}`}`).join('\n') + (rest.length > 4 ? '\nOpen the extension for the rest.' : '')
     });
   }
 }
 
 /* ---------- Discord webhook (optional) ---------- */
-// one card per alert; its title links to the item on mesos.watch (the site opens #item=<id> links)
-function webhookEmbed(a, dealPct) {
-  const r = a.r;
-  const bundle = (r.per > 1 ? `${r.per} for ${fmtMesos(r.price)} · ` : '') + (r.stacks > 1 ? `${r.stacks} stacks · ` : '');
-  const st = statsText(r.stats);
-  // the shop's title is typed by its owner: escape Discord markdown so it shows as written
-  const shop = r.title ? ` · “${String(r.title).replace(/[\\*_~`|>]/g, '\\$&')}”` : '';
+// One card per shop, the same however many alerts it has:
+//   title   Ch 3 · Room 4 · Bob · “NX cheap”
+//           -# 3 items                       (Discord's small subtext)
+//           [Pink Shirt](link) · **900k** · 2 stacks · listed 2 minutes ago
+//   footer  Alert ≤ 35k                      (+ Discord's time of the newest listing)
+// Names and shop titles are typed by players: Discord markdown in them is escaped so they show as written.
+const mdEscape = s => String(s).replace(/[\\*_~`|>\[\]]/g, '\\$&');
+// why, short: "≤ 35k" (an NX limit or an item's target), "10% under typical"
+const alertTag = (a, dealPct) => (a.nx || (a.target > 0 && a.r.unit <= a.target) ? `≤ ${fmtMesos(a.target)}` : `${dealPct}% under typical`);
+function webhookEmbed(g, dealPct) {
+  const r = g[0].r;
+  const SHOW = 15;
+  const lines = g.slice(0, SHOW).map(a => {
+    const x = a.r, st = statsText(x.stats);
+    const parts = [`[${mdEscape(a.name)}](${MWA_SITE}#item=${a.id})`, `**${fmtMesos(x.unit)}**${x.per > 1 ? ' each' : ''}`];
+    if (x.per > 1) parts.push(`${x.per} for ${fmtMesos(x.price)}`);
+    if (x.stacks > 1) parts.push(`${x.stacks} stacks`);
+    if (st) parts.push(st);
+    if (x.listed) parts.push(`listed <t:${x.listed}:R>`); // Discord shows it in the reader's time, kept current
+    return parts.join(' · ');
+  });
+  if (g.length > SHOW) lines.push(`…and ${g.length - SHOW} more. Open the extension for the rest.`);
+  const title = [`Ch ${r.ch}`, `Room ${r.r}`, r.owner && mdEscape(r.owner), r.title ? `“${mdEscape(r.title)}”` : null].filter(Boolean).join(' · ');
+  const tags = [...new Set(g.map(a => alertTag(a, dealPct)))];
+  const newest = Math.max(0, ...g.map(a => a.r.listed || 0));
   return {
-    title: `${a.name}: ${fmtMesos(r.unit)}${r.per > 1 ? ' each' : ''}`,
-    url: `${MWA_SITE}#item=${a.id}`,
-    description: `${st ? st + '\n' : ''}${bundle}**Ch ${r.ch} · Room ${r.r}**${r.owner ? ' · ' + r.owner : ''}${shop}\n${alertWhy(a, dealPct)}`,
+    title: title.slice(0, 256),
+    description: `-# ${g.length} item${g.length > 1 ? 's' : ''}\n` + lines.join('\n'),
     color: 0x2fbf71,
-    timestamp: new Date(r.listed ? r.listed * 1000 : Date.now()).toISOString(),
-    footer: { text: r.listed ? 'Listed' : 'Seen' }
+    timestamp: new Date(newest ? newest * 1000 : Date.now()).toISOString(),
+    footer: { text: 'Alert ' + tags.join(' · ') }
   };
 }
 
@@ -321,13 +367,11 @@ async function postWebhook(url, embeds, content) {
   return { ok: !error, error };
 }
 
-const testWebhook = url => postWebhook(url, [{
-  title: 'Test alert: Red Potion: 140',
-  url: MWA_SITE,
-  description: '**Ch 18 · Room 9** · SomeSeller · “Cheap pots!”\nThis is a test from Mesos Watch Alerts. Real alerts look like this.',
-  color: 0x2fbf71,
-  timestamp: new Date().toISOString()
-}]);
+// a sample card, made the same way as real ones
+const testWebhook = url => postWebhook(url, [webhookEmbed([
+  { id: 2000000, name: 'Red Potion', target: 200, r: { ch: 18, r: 9, owner: 'SomeSeller', title: 'Cheap pots!', unit: 140, price: 14000, per: 100, stacks: 1, listed: Math.floor(Date.now() / 1000) - 60 } },
+  { id: 2000001, name: 'Orange Potion', target: 200, r: { ch: 18, r: 9, owner: 'SomeSeller', title: 'Cheap pots!', unit: 180, price: 180, per: 1, stacks: 3, listed: Math.floor(Date.now() / 1000) - 120 } }
+], 0)], 'Test from Mesos Watch Alerts: real alerts look like this.');
 
 async function focusSite() {
   const tabs = await chrome.tabs.query({ url: 'https://mesos.watch/*' });
@@ -344,9 +388,9 @@ chrome.notifications.onClicked.addListener(id => { chrome.notifications.clear(id
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = p => { p.then(r => sendResponse(r === undefined ? true : r), () => sendResponse(false)); return true; };
   if (msg.type === 'claim') return reply(claim(sender.tab ? sender.tab.id : -1, !!msg.force));
-  if (msg.type === 'result') return reply(serial(() => onResult(msg.data || {}, msg.hits || {}, msg.checked || null, msg.nx)));
+  if (msg.type === 'result') return reply(serial(() => onResult(msg.data || {}, msg.hits || {}, msg.checked || null, msg.nx, msg.only)));
   if (msg.type === 'error') return reply(serial(() => onError(msg.error)));
-  if (msg.type === 'dismiss') return reply(serial(() => dismiss(msg.key, msg.at)));
+  if (msg.type === 'dismiss') return reply(serial(() => dismiss(msg.items || [{ key: msg.key, at: msg.at }])));
   if (msg.type === 'clearInbox') return reply(serial(clearInbox));
   if (msg.type === 'focusSite') return reply(focusSite());
   if (msg.type === 'logError') return reply(logErrors([msg.entry || {}]));

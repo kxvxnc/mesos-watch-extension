@@ -12,7 +12,9 @@
   <header>
     <div class="title"><img src="icons/32.png" alt="" width="20" height="20"> Mesos Watch Alerts</div>
     <div class="status"><span id="dot" class="dot"></span><span id="status">…</span>
-      <button id="refresh" class="icon" title="Check now">↻</button></div>
+      <button id="refresh" class="icon" title="Check now">↻</button>
+      <label class="switch" title="Pause or resume every alert at once (watchlist and NX). Targets are kept.">
+        <input id="allOn" type="checkbox"><span class="slider"></span><span id="allOnText">Alerts on</span></label></div>
   </header>
 
   <main>
@@ -34,13 +36,28 @@
     <section class="card">
       <div class="cardhead">
         <h2>Watching <span id="watchCount" class="count"></span></h2>
-        <label class="switch" title="Pause or resume every alert at once. Targets are kept.">
-          <input id="allOn" type="checkbox"><span class="slider"></span><span id="allOnText">Alerts on</span></label>
+        <label class="switch" title="Turn the watchlist's alerts off or on. NX alerts carry on; targets are kept.">
+          <input id="watchOn" type="checkbox"><span class="slider"></span><span id="watchOnText">On</span></label>
       </div>
-      <p id="pausedNote" class="paused-note" hidden>All alerts are paused: nothing is being checked. Turn them back on with the switch above;
+      <p id="pausedNote" class="paused-note" hidden>All alerts are paused: nothing is being checked. Turn them back on with the switch at the top;
         listings that went up while paused won't alert.</p>
+      <p id="watchOffNote" class="paused-note" hidden>The watchlist is off: its items aren't checked. NX alerts carry on.
+        Listings that go up while it's off won't alert when you turn it back on.</p>
       <ul id="list" class="list"></ul>
       <p id="empty" class="empty" hidden>Nothing watched yet. Search for an item above.</p>
+    </section>
+
+    <section class="card">
+      <div class="cardhead">
+        <h2>NX equips</h2>
+        <label class="switch" title="Turn NX alerts off or on. Your price is kept.">
+          <input id="nxOn" type="checkbox"><span class="slider"></span><span id="nxOnText">On</span></label>
+      </div>
+      <label>Alert for any NX equip listed at or under <input id="nxMax" type="text" placeholder="price" autocomplete="off"> each
+        <span class="hint">(Equips › NX equips, as the site's Live feed · empty = none)</span></label>
+      <label>Check every <input id="nxInterval" type="number" min="0" step="any"> seconds
+        <span class="hint">(30 by default)</span></label>
+      <p class="hint" id="nxInfo"></p>
     </section>
 
     <section class="card">
@@ -65,13 +82,10 @@
 
     <section class="card">
       <h2>Settings</h2>
-      <label>Check every <input id="interval" type="number" min="30" step="15"> seconds
+      <label>Check watched items every <input id="interval" type="number" min="30" step="15"> seconds
         <span class="hint">(60 or more recommended)</span></label>
       <label>Also alert when a listing is <input id="deal" type="number" min="0" max="90" step="5">% under the item's typical price
         <span class="hint">(0 = off, applies to every item)</span></label>
-      <label>Alert for any NX equip listed at or under <input id="nxMax" type="text" placeholder="off" autocomplete="off"> each
-        <span class="hint">(Equips › NX equips, as the site's Live feed · empty = off)</span></label>
-      <p class="hint" id="nxInfo"></p>
       <label class="check"><input id="notify" type="checkbox"> Desktop notifications
         <span class="hint">(alerts still collect in the popup when off)</span></label>
 

@@ -44,11 +44,12 @@ async function renderStatus(st) {
     status.textContent = 'error';
     return show(L.error.message);
   }
-  if (!st.watch.length) { status.textContent = 'idle'; return; }
+  const running = runningIntervals(st.settings, st.watch);
+  if (!running.length) { status.textContent = 'idle'; return; }
   if (!L || !L.at) { dot.classList.add('warn'); status.textContent = 'starting…'; return; }
   const age = Date.now() - L.at;
-  const stale = age > Math.max(180000, 3 * st.settings.intervalSec * 1000);
-  const failing = listingsFailing(L);
+  const stale = age > Math.max(180000, 3 * Math.max(...running) * 1000);
+  const failing = watchOn(st.settings, st.watch) ? listingsFailing(L) : [];
   dot.classList.add(stale || failing.length ? 'warn' : 'ok');
   status.textContent = (stale ? 'stalled · ' : failing.length ? 'listings failing · ' : '') + 'checked ' + ago(age);
   if (stale) show('The mesos.watch tab stopped checking. Reload it, or make sure Chrome isn\'t putting it to sleep.');

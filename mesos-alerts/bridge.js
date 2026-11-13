@@ -3,7 +3,6 @@
 (() => {
   const TO_PAGE = 'mwa:to-page';
   const FROM_PAGE = 'mwa:from-page';
-  const DEFAULT_INTERVAL = 60;
 
   let seq = 0;
   const pending = new Map();
@@ -25,7 +24,7 @@
   // the reloaded tab gets a fresh copy.
   let dead = false;
   const alive = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch { return false; } };
-  const stop = () => { dead = true; clearInterval(timer); };
+  const stop = () => { dead = true; for (const L of Object.values(loops)) clearInterval(L.timer); };
   const send = async msg => {
     if (dead) return undefined;
     try { return await chrome.runtime.sendMessage(msg); }
@@ -41,68 +40,93 @@
     catch (err) { if (!alive()) { stop(); return null; } throw err; }
   };
 
-  let ready = false, busy = false, timer = null;
+  let ready = false;
 
-  // a check asked for now (an item added, changed or resumed) while one is running: run it right after
-  let again = false;
-
-  async function tick(force = false) {
-    if (!ready || dead) return;
-    if (busy) { if (force) again = true; return; }
-    busy = true;
-    try {
-      const stored = await getStored(['watch', 'settings']);
-      if (!stored) return;
-      const { watch = [], settings = {} } = stored;
-      if ((!watch.length && !nxOn(settings)) || settings.paused) return; // all alerts paused: no requests at all
-      if (!(await send({ type: 'claim', force }))) return;
-      try {
-        // NX equips first, before the watched items (on every check, like them; the site's Live feed widget reads them
-        // every 30 s): {max, rows, truncated} or {max, error}; left out when off
-        let nx;
-        const cmax = Number(settings.nxMax) || 0;
-        if (cmax > 0) {
-          try { nx = { max: cmax, ...(await ask('nx', { max: cmax })) }; }
-          catch (err) { nx = { max: cmax, error: err }; }
-        }
-        const data = watch.length ? await ask('poll', { ids: watch.map(w => Number(w.id)) }) : {};
-        // fetch the full listings only for items that can have one under the max: the summary's cheapest says so,
-        // or the item can come in bundles (the summary's cheapest may be a bundle's price, not the price each)
-        const dealPct = Number(settings.dealPct) || 0;
-        const need = [];
-        for (const w of watch) {
-          if (w.paused) continue; // paused item: its price still updates (summary), no listings or alerts
-          const x = data[w.id];
-          const max = alertMax(w.target, x && x.typical, dealPct);
-          if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max, min: hasMinStats(w.minStats) ? w.minStats : null, minQty: hasMinQty(w.minQty) ? Number(w.minQty) : 0 });
-        }
-        const hits = need.length ? await ask('listings', { items: need }, 30000 + 15000 * need.length) : {};
-        const checked = Object.fromEntries(watch.map(w => [w.id, alertCfg(w, dealPct)]));
-        await send({ type: 'result', data, hits, checked, nx });
-      } catch (err) {
-        await send({ type: 'error', error: err });
+  // Two loops, each on its own timer: the watchlist and NX equips. One running doesn't hold the other up.
+  // A check asked for now (an item added, a setting changed) while that loop's check runs: run it right after.
+  const loops = {};
+  function loop(name, intervalOf, body) {
+    const L = loops[name] = { busy: false, again: false, timer: null };
+    L.tick = async (force = false) => {
+      if (!ready || dead) return;
+      if (L.busy) { if (force) L.again = true; return; }
+      L.busy = true;
+      try { await body(force); }
+      finally {
+        L.busy = false;
+        if (L.again && !dead) { L.again = false; L.tick(true); }
       }
-    } finally {
-      busy = false;
-      if (again && !dead) { again = false; tick(true); }
-    }
+    };
+    L.schedule = settings => {
+      clearInterval(L.timer);
+      L.timer = setInterval(() => L.tick(), intervalOf(settings) * 1000);
+    };
+    return L;
   }
 
-  async function schedule() {
+  // the watchlist: the summary, then the listings of items that may be under their max
+  loop('watch', s => secOf(s.intervalSec), async force => {
+    const stored = await getStored(['watch', 'settings']);
+    if (!stored) return;
+    const { watch = [], settings = {} } = stored;
+    if (settings.paused || !watchOn(settings, watch)) return; // paused or off: no requests at all
+    if (!(await send({ type: 'claim', force }))) return;
+    try {
+      const data = await ask('poll', { ids: watch.map(w => Number(w.id)) });
+      // fetch the full listings only for items that can have one under the max: the summary's cheapest says so,
+      // or the item can come in bundles (the summary's cheapest may be a bundle's price, not the price each)
+      const dealPct = Number(settings.dealPct) || 0;
+      const need = [];
+      for (const w of watch) {
+        if (w.paused) continue; // paused item: its price still updates (summary), no listings or alerts
+        const x = data[w.id];
+        const max = alertMax(w.target, x && x.typical, dealPct);
+        if (x && max > 0 && (mayBundle(w.id) || x.cheapest <= max)) need.push({ id: Number(w.id), max, min: hasMinStats(w.minStats) ? w.minStats : null, minQty: hasMinQty(w.minQty) ? Number(w.minQty) : 0 });
+      }
+      const hits = need.length ? await ask('listings', { items: need }, 30000 + 15000 * need.length) : {};
+      const checked = Object.fromEntries(watch.map(w => [w.id, alertCfg(w, dealPct)]));
+      await send({ type: 'result', data, hits, checked });
+    } catch (err) {
+      await send({ type: 'error', error: err });
+    }
+  });
+
+  // NX equips (the site's Live feed widget reads them every 30 s): {max, rows, truncated} or {max, error}
+  loop('nx', s => nxSecOf(s.nxIntervalSec), async force => {
     const stored = await getStored('settings');
     if (!stored) return;
     const { settings = {} } = stored;
-    const sec = Math.max(30, Number(settings.intervalSec) || DEFAULT_INTERVAL);
-    clearInterval(timer);
-    timer = setInterval(tick, sec * 1000);
+    if (settings.paused || !nxOn(settings)) return;
+    if (!(await send({ type: 'claim', force }))) return;
+    const max = Number(settings.nxMax);
+    let nx;
+    try { nx = { max, ...(await ask('nx', { max })) }; }
+    catch (err) { nx = { max, error: err }; }
+    await send({ type: 'result', only: 'nx', nx });
+  });
+
+  // NX first: its request goes out ahead of the watchlist's, and they then run side by side
+  const inOrder = () => ['nx', 'watch'].map(n => loops[n]);
+  const tickAll = force => inOrder().forEach(L => L.tick(force));
+  async function scheduleAll() {
+    const stored = await getStored('settings');
+    if (!stored) return;
+    const settings = { ...MWA_DEFAULTS, ...(stored.settings || {}) };
+    for (const L of Object.values(loops)) L.schedule(settings);
   }
 
+  // which settings each loop depends on: a change to one checks that loop now
+  const KEYS = { watch: ['paused', 'watchPaused', 'intervalSec', 'dealPct'], nx: ['paused', 'nxPaused', 'nxIntervalSec', 'nxMax'] };
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || dead) return;
-    if (changes.settings) { schedule(); tick(true); } // a new deal % changes which listings count
+    if (changes.settings) {
+      const a = changes.settings.oldValue || {}, b = changes.settings.newValue || {};
+      scheduleAll();
+      for (const [name, keys] of Object.entries(KEYS)) if (keys.some(k => a[k] !== b[k])) loops[name].tick(true);
+    }
     if (changes.watch) {
       const sig = list => (list || []).map(w => w.id + (w.paused ? 'p' : '')).join();
-      if (sig(changes.watch.oldValue) !== sig(changes.watch.newValue)) tick(true); // added, removed, paused or resumed: now
+      if (sig(changes.watch.oldValue) !== sig(changes.watch.newValue)) loops.watch.tick(true); // added, removed, paused or resumed: now
     }
   });
 
@@ -112,7 +136,7 @@
       return true;
     }
     if (msg.type === 'pollNow') {
-      tick(true).then(() => sendResponse({ ok: true }));
+      Promise.all(inOrder().map(L => L.tick(true))).then(() => sendResponse({ ok: true }));
       return true;
     }
     if (msg.type === 'hello') { sendResponse({ ok: true, ready }); return false; }
@@ -120,6 +144,6 @@
   });
 
   ask('ping', null, 90000)
-    .then(() => { ready = true; schedule(); tick(); })
+    .then(() => { ready = true; scheduleAll(); tickAll(false); })
     .catch(err => send({ type: 'error', error: err }));
 })();

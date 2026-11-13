@@ -1,7 +1,21 @@
 // Shared by background.js (importScripts) and popup.js (<script>).
-// nxMax: alert for any NX equip listed at or under this price each (0 = off)
-const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true, webhook: '', discordOn: true, paused: false, nxMax: 0 };
-const nxOn = settings => !!settings && Number(settings.nxMax) > 0;
+// Two kinds of alerts, each with its own on/off and check delay; paused stops both.
+// The watchlist: watchPaused, intervalSec. NX equips: nxPaused, nxIntervalSec, nxMax (any NX equip listed at or under
+// this price each; 0 = none set).
+const MWA_DEFAULTS = { intervalSec: 60, dealPct: 0, notify: true, webhook: '', discordOn: true, paused: false,
+  watchPaused: false, nxMax: 0, nxPaused: false, nxIntervalSec: 30 };
+// the watchlist's check delay: 30 s at the least (a summary and a request per item)
+const MWA_MIN_INTERVAL_SEC = 30;
+const secOf = v => Math.max(MWA_MIN_INTERVAL_SEC, Math.round(Number(v) || 60));
+// NX equips' check delay: no least, any number of seconds above 0 (empty, 0 or junk: 30, as the site's own Live feed
+// widget). A check never starts while the last one is still running, so a short delay runs them back to back.
+const nxSecOf = v => (Number(v) > 0 ? Number(v) : 30);
+// is each kind running (paused, the switch for everything, is checked apart)
+const watchOn = (settings, watch) => !!settings && !settings.watchPaused && !!(watch && watch.length);
+const nxOn = settings => !!settings && Number(settings.nxMax) > 0 && !settings.nxPaused;
+// the check delays of what's running, in seconds ([] = nothing)
+const runningIntervals = (settings, watch) => [watchOn(settings, watch) ? secOf(settings.intervalSec) : 0,
+  nxOn(settings) ? nxSecOf(settings.nxIntervalSec) : 0].filter(Boolean);
 
 // a Discord channel webhook: https://discord.com/api/webhooks/<id>/<token> (also discordapp.com, canary., ptb.)
 const MWA_WEBHOOK_ORIGINS = ['https://discord.com/api/webhooks/*', 'https://discordapp.com/api/webhooks/*',
@@ -12,6 +26,14 @@ const MWA_INBOX_CAP = 200;
 // one offer: the same shop, price and bundle size (a shop's stacks of it are folded into one)
 const listingKey = r => `${r.store}|${r.price}|${r.per}`;
 const MWA_SITE = 'https://mesos.watch/';
+// one shop: its store id (alerts from before it was kept: its channel, room and owner)
+const shopKey = r => (r.store != null ? `s${r.store}` : `p${r.ch}|${r.r}|${r.owner || ''}`);
+// [[first, ...], ...] by shop, each shop where its first item is in the list (so the list's order is kept)
+function byShop(list, rowOf = x => x) {
+  const m = new Map();
+  for (const x of list) { const k = shopKey(rowOf(x)); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }
+  return [...m.values()];
+}
 
 // 1234 -> "1,234", 45000 -> "45k", 1250000 -> "1.25m", 2000000000 -> "2b"
 function fmtMesos(n) {

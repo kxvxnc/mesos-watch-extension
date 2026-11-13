@@ -11,17 +11,24 @@ header, .banner, .bar { flex: none; }
 .bar button { padding: 2px 8px; font-size: 12px; }
 
 .alerts { list-style: none; margin: 0; padding: 0 12px 12px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.alert { display: grid; grid-template-columns: 1fr auto auto; gap: 1px 8px; align-items: start; padding: 8px 6px 8px 10px;
-  margin-bottom: 6px; background: var(--panel); border: 1px solid rgba(47, 191, 113, .45); border-radius: 8px; cursor: pointer; }
-.alert:hover { border-color: var(--good); }
+/* one card per shop: the shop on top, its alerts under it */
+.shop { margin-bottom: 8px; background: var(--panel); border: 1px solid rgba(47, 191, 113, .45); border-radius: 8px; overflow: hidden; }
+.shophead { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; cursor: pointer;
+  border-bottom: 1px solid var(--line); font-size: 11.5px; }
+.shophead:hover { background: rgba(47, 191, 113, .08); }
+.shophead .where { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shophead .n { color: var(--good); font-weight: 600; white-space: nowrap; }
+.shop .items { list-style: none; margin: 0; padding: 0; }
+.alert { display: grid; grid-template-columns: 1fr auto auto; gap: 1px 8px; align-items: start; padding: 7px 6px 7px 10px; cursor: pointer; }
+.alert + .alert { border-top: 1px solid var(--line); }
+.alert:hover { background: rgba(47, 191, 113, .08); }
 .alert .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .alert .price { font-weight: 700; color: var(--good); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .alert .x { grid-row: 1 / -1; grid-column: 3; }
-.alert .where, .alert .why { grid-column: 1 / span 2; color: var(--muted); font-size: 11.5px;
+.alert .why { grid-column: 1 / span 2; color: var(--muted); font-size: 11.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alert .where { color: var(--text); }
 .alert .stats { grid-column: 1 / span 2; color: var(--gold); font-size: 11.5px; }
-.alert.gone { border-color: var(--line); opacity: .6; }
+.alert.gone { opacity: .6; }
 .alert.gone .price { color: var(--muted); text-decoration: line-through; }
 
 .empty p { margin: 0 0 10px; }

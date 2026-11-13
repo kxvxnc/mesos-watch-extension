@@ -259,21 +259,32 @@ function renderPause() {
   $('allOn').checked = !paused;
   $('allOnText').textContent = paused ? 'All paused' : 'Alerts on';
   $('pausedNote').hidden = !paused;
+  const wOn = !state.settings.watchPaused;
+  $('watchOn').checked = wOn;
+  $('watchOnText').textContent = wOn ? 'On' : 'Off';
+  $('watchOffNote').hidden = paused || wOn;
+  const nOn = !state.settings.nxPaused;
+  $('nxOn').checked = nOn;
+  $('nxOnText').textContent = nOn ? 'On' : 'Off';
 }
+$('watchOn').addEventListener('change', () => { state.settings.watchPaused = !$('watchOn').checked; renderPause(); saveSettings(); });
+$('nxOn').addEventListener('change', () => { state.settings.nxPaused = !$('nxOn').checked; renderPause(); renderNx(); saveSettings(); });
 $('allOn').addEventListener('change', () => { state.settings.paused = !$('allOn').checked; renderPause(); saveSettings(); });
 
 function renderSettings() {
   $('interval').value = state.settings.intervalSec;
   $('deal').value = state.settings.dealPct;
   $('notify').checked = state.settings.notify;
-  if (document.activeElement !== $('nxMax')) $('nxMax').value = nxOn(state.settings) ? fmtMesos(state.settings.nxMax) : '';
+  if (document.activeElement !== $('nxMax')) $('nxMax').value = Number(state.settings.nxMax) > 0 ? fmtMesos(state.settings.nxMax) : '';
+  $('nxInterval').value = nxSecOf(state.settings.nxIntervalSec);
   renderNx();
 }
 // how the last read of NX equips went
 function renderNx() {
   const c = state.latest && state.latest.nx;
   let t = '';
-  if (nxOn(state.settings)) {
+  if (state.settings.nxPaused && Number(state.settings.nxMax) > 0) t = 'Off: NX equips aren\'t checked. Your price is kept; listings that go up while off won\'t alert.';
+  else if (nxOn(state.settings)) {
     if (!c || c.max !== Number(state.settings.nxMax)) t = 'Waiting for the first read: listings already up then are noted, not alerted.';
     else if (c.error) t = `Couldn't read the NX equip listings: ${friendlyError(c.error)}.${c.at ? ` Last read ${ago(Date.now() - c.at)}.` : ''}`;
     else t = `${c.hitCount} offer${c.hitCount === 1 ? '' : 's'} at or under it now${c.truncated ? ' (the newest ones: the site sends a capped list)' : ''}`
@@ -281,7 +292,7 @@ function renderNx() {
   }
   $('nxInfo').textContent = t;
   $('nxInfo').hidden = !t;
-  $('nxInfo').classList.toggle('err', !!(c && c.error && nxOn(state.settings)));
+  $('nxInfo').classList.toggle('err', !!(c && c.error && nxOn(state.settings) && c.max === Number(state.settings.nxMax)));
 }
 $('nxMax').addEventListener('change', () => {
   const v = parseMesos($('nxMax').value);
@@ -289,6 +300,11 @@ $('nxMax').addEventListener('change', () => {
   $('nxMax').classList.remove('err');
   state.settings.nxMax = v > 0 ? v : 0;
   $('nxMax').value = v > 0 ? fmtMesos(v) : '';
+  saveSettings();
+});
+$('nxInterval').addEventListener('change', () => {
+  state.settings.nxIntervalSec = nxSecOf($('nxInterval').value);
+  $('nxInterval').value = state.settings.nxIntervalSec;
   saveSettings();
 });
 $('nxMax').addEventListener('keydown', e => { if (e.key === 'Enter') $('nxMax').blur(); });

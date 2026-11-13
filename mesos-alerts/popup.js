@@ -25,39 +25,64 @@ function renderInbox() {
   const w = state.watch.length;
   $('emptyText').textContent = state.settings.paused
     ? 'All alerts are paused. Press the play button at the top to resume.'
-    : w || nxOn(state.settings)
-    ? `Nothing new. Watching ${[w ? `${w} item${w > 1 ? 's' : ''}` : '', nxOn(state.settings) ? `NX equips ≤ ${fmtMesos(state.settings.nxMax)}` : ''].filter(Boolean).join(' and ')}: new listings show up here.`
+    : watchOn(state.settings, state.watch) || nxOn(state.settings)
+    ? `Nothing new. Watching ${[watchOn(state.settings, state.watch) ? `${w} item${w > 1 ? 's' : ''}` : '', nxOn(state.settings) ? `NX equips ≤ ${fmtMesos(state.settings.nxMax)}` : ''].filter(Boolean).join(' and ')}: new listings show up here.`
+    : w && state.settings.watchPaused
+    ? 'The watchlist is off and no NX alert is on. Turn one on in the settings.'
     : 'No items watched yet. Add some and set a target price to get alerts.';
   $('setup').textContent = w ? 'Edit alerts' : 'Set up alerts';
 
-  for (const a of state.inbox) {
-    const gone = isGone(a);
-    const li = el('li', 'alert' + (gone ? ' gone' : ''));
-    li.title = `${a.why}. Click to open the mesos.watch tab.`;
-    const price = el('span', 'price', priceOf(a));
-    price.title = priceTitle(a);
-    const x = el('button', 'icon x', '×');
-    x.title = 'Dismiss';
-    x.addEventListener('click', e => { e.stopPropagation(); dismiss(a); });
-    const listed = a.listed ? ` · listed ${agoS(a.listed)}` : '';
-    li.append(
-      el('span', 'name', a.name),
-      price,
-      x,
-      el('span', 'where', placeOf(a)),
-      ...(a.stats && statsText(a.stats) ? [el('span', 'stats', statsText(a.stats))] : []),
-      el('span', 'why', `${gone ? 'No longer listed · ' : ''}${a.tag || a.why} · alerted ${ago(Date.now() - a.at)}${listed}`)
-    );
-    li.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'focusSite' }).then(() => window.close()));
-    list.append(li);
+  // one card per shop (newest first, as the inbox is): the shop on top, then each of its alerts
+  const shops = byShop(state.inbox);
+  if (n && shops.length > 1) $('count').textContent += ` · ${shops.length} shops`;
+  const open = () => chrome.runtime.sendMessage({ type: 'focusSite' }).then(() => window.close());
+  for (const g of shops) {
+    const s = g[0];
+    const card = el('li', 'shop');
+    const head = el('div', 'shophead');
+    const where = el('span', 'where', placeOf(s));
+    where.title = placeOf(s);
+    head.append(where);
+    if (g.length > 1) head.append(el('span', 'n', `${g.length} alerts`));
+    const xs = el('button', 'icon x', '×');
+    xs.title = g.length > 1 ? `Dismiss all ${g.length} from this shop` : 'Dismiss';
+    xs.addEventListener('click', e => { e.stopPropagation(); dismiss(g); });
+    head.append(xs);
+    head.addEventListener('click', open);
+    card.append(head);
+
+    const ul = el('ul', 'items');
+    for (const a of g) {
+      const gone = isGone(a);
+      const li = el('li', 'alert' + (gone ? ' gone' : ''));
+      li.title = `${a.why}. Click to open the mesos.watch tab.`;
+      const price = el('span', 'price', priceOf(a));
+      price.title = priceTitle(a);
+      const listed = a.listed ? ` · listed ${agoS(a.listed)}` : '';
+      li.append(el('span', 'name', a.name), price);
+      if (g.length > 1) {
+        const x = el('button', 'icon x', '×');
+        x.title = 'Dismiss';
+        x.addEventListener('click', e => { e.stopPropagation(); dismiss([a]); });
+        li.append(x);
+      }
+      if (a.stats && statsText(a.stats)) li.append(el('span', 'stats', statsText(a.stats)));
+      li.append(el('span', 'why', `${gone ? 'No longer listed · ' : ''}${a.tag || a.why} · alerted ${ago(Date.now() - a.at)}${listed}`));
+      li.addEventListener('click', open);
+      ul.append(li);
+    }
+    card.append(ul);
+    list.append(card);
   }
 }
 
 // the background writes the inbox, so a check landing meanwhile can't bring a dismissed alert back
-function dismiss(a) {
-  state.inbox = state.inbox.filter(e => !(e.key === a.key && e.at === a.at));
+// list: one alert, or a shop's
+function dismiss(list) {
+  const gone = e => list.some(a => e.key === a.key && e.at === a.at);
+  state.inbox = state.inbox.filter(e => !gone(e));
   renderInbox();
-  chrome.runtime.sendMessage({ type: 'dismiss', key: a.key, at: a.at });
+  chrome.runtime.sendMessage({ type: 'dismiss', items: list.map(a => ({ key: a.key, at: a.at })) });
 }
 $('clearAll').addEventListener('click', () => {
   state.inbox = [];
